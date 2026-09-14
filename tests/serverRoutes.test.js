@@ -1460,6 +1460,43 @@ describe('Server HTTP Routes & Clean URL Flow', () => {
     assert.equal(data.activities[0].type, 'command');
     assert.equal(data.activities[0].actor, 'chatter42');
   });
+
+  it('should save scam bot and gfx bot filter settings with configured action via POST /api/moderation', async () => {
+    const { getModerationSettings } = await import('../src/db/index.js');
+    upsertChannel({
+      id: '8950',
+      login: 'scamprotected',
+      displayName: 'ScamProtected',
+    });
+    const sessionToken = createSession({
+      userId: '8950',
+      login: 'scamprotected',
+      displayName: 'ScamProtected',
+    });
+
+    const modRes = await fetch(`${baseUrl}/api/moderation`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '8950',
+        filterScamBots: 'on',
+        scamAction: 'ban',
+        filterGfxBots: 'on',
+      }).toString(),
+      redirect: 'manual',
+    });
+
+    assert.equal(modRes.status, 302);
+    assert.equal(modRes.headers.get('location'), '/dashboard');
+
+    const saved = getModerationSettings('8950');
+    assert.equal(saved.filterScamBots, true);
+    assert.equal(saved.scamAction, 'ban');
+    assert.equal(saved.filterGfxBots, true);
+  });
 });
 
 

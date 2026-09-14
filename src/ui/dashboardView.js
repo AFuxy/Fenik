@@ -439,7 +439,7 @@ export function renderDashboardView({
                     <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
                   </svg>
                   <span class="ks-sidebar-item-label">Auto-Moderation</span>
-                  ${(channel.moderation?.filterLinks || channel.moderation?.filterCaps || channel.moderation?.filterEmotes || channel.moderation?.filterRepetition || (channel.moderation?.bannedWords && channel.moderation?.bannedWords.length > 0)) ? `
+                  ${(channel.moderation?.filterLinks || channel.moderation?.filterCaps || channel.moderation?.filterEmotes || channel.moderation?.filterRepetition || channel.moderation?.filterScamBots || channel.moderation?.filterGfxBots || (channel.moderation?.bannedWords && channel.moderation?.bannedWords.length > 0)) ? `
                     <span class="ks-tag ks-tag-gold" style="font-size: 0.68rem; padding: 1px 6px; margin-left: auto;">On</span>
                   ` : ''}
                 </button>
@@ -587,7 +587,7 @@ export function renderDashboardView({
               </div>
 
               <p style="font-size: 0.84rem; color: var(--ks-text-muted); line-height: 1.45; margin-bottom: 14px;">
-                Twitch permissions grant the bot access to join chat under official chatbot terms, verify followers for <code>{followage}</code>, and manage moderators.
+                Twitch permissions grant the bot access to join chat under official chatbot terms, verify followers for <code>{followage}</code>, manage moderators, and protect chat from viewbot scams.
               </p>
 
               <!-- Scopes List -->
@@ -648,7 +648,7 @@ export function renderDashboardView({
               </div>
 
               <p style="font-size: 0.84rem; color: var(--ks-text-muted); line-height: 1.45; margin-bottom: 14px;">
-                Mod status allows @<strong>${escapeAttr(bot?.displayName || bot?.login || config.botName)}</strong> to speak freely without Twitch slow-mode limits, timeout offenders in auto-mod, and deliver fast responses.
+                Mod status allows @<strong>${escapeAttr(bot?.displayName || bot?.login || config.botName)}</strong> to speak freely without Twitch slow-mode limits, timeout offenders in auto-mod, delete scam links, and ban fake viewbot accounts.
               </p>
 
               ${isBotMod === true ? `
@@ -1893,13 +1893,68 @@ export function renderDashboardView({
           <div class="ks-card-header">
             <div>
               <h2 class="ks-card-title">Chat Auto-Moderation</h2>
-              <p class="ks-card-desc">Protect your stream chat against unauthorized links, caps spam, and blocked phrases.</p>
+              <p class="ks-card-desc">Protect your stream chat against fake viewer scam bots, unauthorized obfuscated links, caps spam, and blocked phrases.</p>
             </div>
+            ${isBotMod !== true ? `
+              <div class="ks-tag ks-tag-vermilion" style="font-size: 0.75rem; padding: 4px 10px;">
+                ⚠ Bot requires Moderator status to delete chat messages and ban scam bots
+              </div>
+            ` : `
+              <div class="ks-tag ks-tag-patina" style="font-size: 0.75rem; padding: 4px 10px;">
+                ✓ Bot Moderator Active
+              </div>
+            `}
           </div>
 
           <form action="/api/moderation" method="POST">
             <input type="hidden" name="channelId" value="${channel.id}">
             <div style="display: flex; flex-direction: column; gap: 20px;">
+
+              <!-- 1. Fake Views & Scam Bot Protection -->
+              <div class="ks-toggle-row" style="display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-bottom: 1px solid var(--ks-rule);">
+                <div style="max-width: 600px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="font-weight: 600; color: var(--ks-champagne);">Fake Views &amp; Scam Bot Protection</div>
+                    <span class="ks-tag ks-tag-gold" style="font-size: 0.68rem; padding: 1px 6px;">Recommended</span>
+                  </div>
+                  <div style="color: var(--ks-text-muted); font-size: 0.85rem; margin-top: 4px; line-height: 1.45;">
+                    Detects viewbot, fake follower, and cheap primes spam disguised with broken links (e.g. <code>dogviews . com</code>, <code>topviews(dot)com</code>, <code>bigfollows [dot] ru</code>, Cyrillic homoglyphs, and fullwidth Unicode).
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                    <label for="scam-action" class="ks-label" style="margin-bottom: 0; font-size: 0.78rem;">Action on Detection:</label>
+                    <select 
+                      id="scam-action" 
+                      name="scamAction" 
+                      class="ks-input-text" 
+                      style="max-width: 230px; min-height: 30px; padding: 2px 8px; font-size: 0.82rem; background: var(--ks-lacquer-deep);"
+                    >
+                      <option value="timeout" ${channel.moderation?.scamAction === 'timeout' || !channel.moderation?.scamAction ? 'selected' : ''}>Timeout Chatter (10 minutes)</option>
+                      <option value="ban" ${channel.moderation?.scamAction === 'ban' ? 'selected' : ''}>Permanently Ban Chatter</option>
+                      <option value="delete" ${channel.moderation?.scamAction === 'delete' ? 'selected' : ''}>Delete Message Only</option>
+                    </select>
+                  </div>
+                </div>
+                <label class="ks-toggle" title="Toggle scam bot protection">
+                  <input type="checkbox" name="filterScamBots" aria-label="Fake Views and Scam Bot Protection" ${channel.moderation?.filterScamBots !== false ? 'checked' : ''}>
+                  <span class="ks-toggle-track"><span class="ks-toggle-knob"></span></span>
+                </label>
+              </div>
+
+              <!-- 2. Unsolicited Graphic Artist / GFX Bot Filter -->
+              <div class="ks-toggle-row" style="display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-bottom: 1px solid var(--ks-rule);">
+                <div style="max-width: 600px;">
+                  <div style="font-weight: 600; color: var(--ks-champagne);">Unsolicited Graphic Artist / GFX Bot Filter</div>
+                  <div style="color: var(--ks-text-muted); font-size: 0.85rem; margin-top: 4px; line-height: 1.45;">
+                    Automatically eliminates copy-pasted commission solicitations, fake digital artist pitches, and portfolio spam soliciting Discord DMs.
+                  </div>
+                </div>
+                <label class="ks-toggle" title="Toggle graphic artist bot filter">
+                  <input type="checkbox" name="filterGfxBots" aria-label="Unsolicited Graphic Artist and GFX Bot Filter" ${channel.moderation?.filterGfxBots !== false ? 'checked' : ''}>
+                  <span class="ks-toggle-track"><span class="ks-toggle-knob"></span></span>
+                </label>
+              </div>
+
+              <!-- 3. Block Unpermitted Links -->
               <div class="ks-toggle-row" style="display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-bottom: 1px solid var(--ks-rule);">
                 <div style="max-width: 600px;">
                   <div style="font-weight: 600; color: var(--ks-champagne);">Block Unpermitted Links</div>

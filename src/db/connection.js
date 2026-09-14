@@ -68,6 +68,9 @@ export function initDb() {
       max_emotes INTEGER NOT NULL DEFAULT 10,
       filter_repetition INTEGER NOT NULL DEFAULT 0,
       max_repetition INTEGER NOT NULL DEFAULT 4,
+      filter_scam_bots INTEGER NOT NULL DEFAULT 1,
+      scam_action TEXT NOT NULL DEFAULT 'timeout',
+      filter_gfx_bots INTEGER NOT NULL DEFAULT 1,
       banned_words TEXT NOT NULL DEFAULT '[]',
       updated_at INTEGER NOT NULL
     );
@@ -186,11 +189,14 @@ export function initDb() {
   // Safe migrations for commands aliases
   try { db.prepare("ALTER TABLE commands ADD COLUMN aliases TEXT DEFAULT ''").run(); } catch (_) {}
 
-  // Safe migrations for moderation_settings (emote & repetition spam filters)
+  // Safe migrations for moderation_settings (emote & repetition spam filters, scam & gfx bot filters)
   try { db.prepare('ALTER TABLE moderation_settings ADD COLUMN filter_emotes INTEGER NOT NULL DEFAULT 0').run(); } catch (_) {}
   try { db.prepare('ALTER TABLE moderation_settings ADD COLUMN max_emotes INTEGER NOT NULL DEFAULT 10').run(); } catch (_) {}
   try { db.prepare('ALTER TABLE moderation_settings ADD COLUMN filter_repetition INTEGER NOT NULL DEFAULT 0').run(); } catch (_) {}
   try { db.prepare('ALTER TABLE moderation_settings ADD COLUMN max_repetition INTEGER NOT NULL DEFAULT 4').run(); } catch (_) {}
+  try { db.prepare('ALTER TABLE moderation_settings ADD COLUMN filter_scam_bots INTEGER NOT NULL DEFAULT 1').run(); } catch (_) {}
+  try { db.prepare("ALTER TABLE moderation_settings ADD COLUMN scam_action TEXT NOT NULL DEFAULT 'timeout'").run(); } catch (_) {}
+  try { db.prepare('ALTER TABLE moderation_settings ADD COLUMN filter_gfx_bots INTEGER NOT NULL DEFAULT 1').run(); } catch (_) {}
 }
 
 // Automatically initialize schema on module load

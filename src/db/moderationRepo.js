@@ -13,6 +13,9 @@ export function getModerationSettings(channelId) {
       maxEmotes: 10,
       filterRepetition: false,
       maxRepetition: 4,
+      filterScamBots: true,
+      scamAction: 'timeout',
+      filterGfxBots: true,
       bannedWords: [],
     };
   }
@@ -29,6 +32,9 @@ export function getModerationSettings(channelId) {
     maxEmotes: parseInt(row.max_emotes, 10) || 10,
     filterRepetition: Boolean(row.filter_repetition),
     maxRepetition: parseInt(row.max_repetition, 10) || 4,
+    filterScamBots: row.filter_scam_bots !== undefined && row.filter_scam_bots !== null ? Boolean(row.filter_scam_bots) : true,
+    scamAction: ['timeout', 'ban', 'delete'].includes(row.scam_action) ? row.scam_action : 'timeout',
+    filterGfxBots: row.filter_gfx_bots !== undefined && row.filter_gfx_bots !== null ? Boolean(row.filter_gfx_bots) : true,
     bannedWords: banned,
   };
 }
@@ -38,9 +44,21 @@ export function updateModerationSettings(channelId, settings) {
   const now = Date.now();
   const bannedJson = JSON.stringify(settings.bannedWords || []);
 
+  const filterScamBots = settings.filterScamBots !== undefined ? (settings.filterScamBots ? 1 : 0) : 1;
+  const scamAction = ['timeout', 'ban', 'delete'].includes(settings.scamAction) ? settings.scamAction : 'timeout';
+  const filterGfxBots = settings.filterGfxBots !== undefined ? (settings.filterGfxBots ? 1 : 0) : 1;
+
   const stmt = db.prepare(`
-    INSERT INTO moderation_settings (channel_id, filter_links, filter_caps, filter_emotes, max_emotes, filter_repetition, max_repetition, banned_words, updated_at)
-    VALUES (@channelId, @filterLinks, @filterCaps, @filterEmotes, @maxEmotes, @filterRepetition, @maxRepetition, @bannedWords, @updatedAt)
+    INSERT INTO moderation_settings (
+      channel_id, filter_links, filter_caps, filter_emotes, max_emotes,
+      filter_repetition, max_repetition, filter_scam_bots, scam_action, filter_gfx_bots,
+      banned_words, updated_at
+    )
+    VALUES (
+      @channelId, @filterLinks, @filterCaps, @filterEmotes, @maxEmotes,
+      @filterRepetition, @maxRepetition, @filterScamBots, @scamAction, @filterGfxBots,
+      @bannedWords, @updatedAt
+    )
     ON CONFLICT(channel_id) DO UPDATE SET
       filter_links = excluded.filter_links,
       filter_caps = excluded.filter_caps,
@@ -48,6 +66,9 @@ export function updateModerationSettings(channelId, settings) {
       max_emotes = excluded.max_emotes,
       filter_repetition = excluded.filter_repetition,
       max_repetition = excluded.max_repetition,
+      filter_scam_bots = excluded.filter_scam_bots,
+      scam_action = excluded.scam_action,
+      filter_gfx_bots = excluded.filter_gfx_bots,
       banned_words = excluded.banned_words,
       updated_at = excluded.updated_at
   `);
@@ -60,6 +81,9 @@ export function updateModerationSettings(channelId, settings) {
     maxEmotes: parseInt(settings.maxEmotes, 10) || 10,
     filterRepetition: settings.filterRepetition ? 1 : 0,
     maxRepetition: parseInt(settings.maxRepetition, 10) || 4,
+    filterScamBots,
+    scamAction,
+    filterGfxBots,
     bannedWords: bannedJson,
     updatedAt: now,
   });

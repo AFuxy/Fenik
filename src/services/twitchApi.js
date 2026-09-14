@@ -453,6 +453,35 @@ export async function timeoutUser({ broadcasterId, moderatorId, userId, duration
 }
 
 /**
+ * PERMANENT BAN USER API (Helix) - For auto-moderation / scam bot elimination
+ */
+export async function banUser({ broadcasterId, moderatorId, userId, reason = 'Automated moderation' }) {
+  try {
+    const token = await getValidBotToken();
+    const url = new URL('https://api.twitch.tv/helix/moderation/bans');
+    url.searchParams.set('broadcaster_id', String(broadcasterId));
+    url.searchParams.set('moderator_id', String(moderatorId));
+
+    await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'Client-Id': config.clientId,
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        data: {
+          user_id: String(userId),
+          reason: String(reason),
+        },
+      }),
+    });
+  } catch (err) {
+    console.warn('[Moderation] Could not ban user:', err.message);
+  }
+}
+
+/**
  * Create an EventSub subscription (WebSocket)
  */
 export async function createEventSubSubscription({ type, version = '1', condition, transport, token = null }) {

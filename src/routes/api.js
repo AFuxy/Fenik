@@ -657,6 +657,11 @@ apiRouter.post('/moderation', requireAuth, (req, res) => {
   const filterRepetition = Boolean(req.body.filterRepetition === 'true' || req.body.filterRepetition === 'on' || req.body.filterRepetition === true || req.body.filterRepetition === '1');
   const maxRepetition = Math.max(2, Math.min(20, parseInt(req.body.maxRepetition, 10) || 4));
 
+  const filterScamBots = Boolean(req.body.filterScamBots === 'true' || req.body.filterScamBots === 'on' || req.body.filterScamBots === true || req.body.filterScamBots === '1');
+  const rawScamAction = String(req.body.scamAction || 'timeout').toLowerCase();
+  const scamAction = ['timeout', 'ban', 'delete'].includes(rawScamAction) ? rawScamAction : 'timeout';
+  const filterGfxBots = Boolean(req.body.filterGfxBots === 'true' || req.body.filterGfxBots === 'on' || req.body.filterGfxBots === true || req.body.filterGfxBots === '1');
+
   const rawBanned = String(req.body.bannedWords || '');
   const bannedWords = rawBanned
     .split(',')
@@ -670,6 +675,9 @@ apiRouter.post('/moderation', requireAuth, (req, res) => {
     maxEmotes,
     filterRepetition,
     maxRepetition,
+    filterScamBots,
+    scamAction,
+    filterGfxBots,
     bannedWords,
   });
 

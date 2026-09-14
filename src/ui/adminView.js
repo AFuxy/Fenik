@@ -175,10 +175,17 @@ export function renderAdminView({
                 <div style="margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                   <span class="ks-tag ks-tag-patina" style="font-size: 0.72rem;">✓ Chat & Raids Active</span>
                   ${bot.tokenInfo.scopes?.includes('moderator:read:followers') ? `
-                    <span class="ks-tag ks-tag-patina" style="font-size: 0.72rem;">✓ Follower Alerts Scope Granted</span>
+                    <span class="ks-tag ks-tag-patina" style="font-size: 0.72rem;">✓ Follower Alerts Scope</span>
                   ` : `
-                    <span class="ks-tag ks-tag-vermilion" style="font-size: 0.72rem;" title="Bot needs 'moderator:read:followers' scope to listen to follower events. Click 'Re-authorize Bot Account' to update.">
-                      ⚠ Follower Scope Missing (Re-authorize to enable follower alerts)
+                    <span class="ks-tag ks-tag-vermilion" style="font-size: 0.72rem;" title="Bot needs 'moderator:read:followers' scope. Re-authorize bot to enable.">
+                      ⚠ Follower Scope Missing
+                    </span>
+                  `}
+                  ${(bot.tokenInfo.scopes?.includes('moderator:manage:chat_messages') && bot.tokenInfo.scopes?.includes('moderator:manage:banned_users')) ? `
+                    <span class="ks-tag ks-tag-patina" style="font-size: 0.72rem;">✓ Moderation &amp; Scam Bot Protection Active</span>
+                  ` : `
+                    <span class="ks-tag ks-tag-vermilion" style="font-size: 0.72rem;" title="Bot needs 'moderator:manage:chat_messages' and 'moderator:manage:banned_users' scopes to delete spam and ban scam bots. Click 'Re-authorize Bot Account' to update.">
+                      ⚠ Moderation Scopes Missing (Re-authorize to enable scam bot bans)
                     </span>
                   `}
                 </div>

@@ -56,12 +56,24 @@ export const STREAMER_SCOPES = [
   'user:read:email',
 ].join(' ');
 
+// Central bot account required scopes with metadata
+export const REQUIRED_BOT_SCOPES = [
+  { id: 'user:bot', name: 'Twitch Chatbot Identity', desc: 'Registers bot account as an official Twitch chat bot.', required: true },
+  { id: 'user:read:chat', name: 'Chat Reading Presence', desc: 'Allows the bot to receive and parse incoming chat messages.', required: true },
+  { id: 'user:write:chat', name: 'Chat Response Dispatch', desc: 'Allows the bot to send automated responses and alerts.', required: true },
+  { id: 'moderator:read:followers', name: 'Follower EventSub Listening', desc: 'Enables real-time detection of new channel followers.', required: true },
+  { id: 'moderator:manage:chat_messages', name: 'Spam & Link Deletion', desc: 'Deletes scam promotions, unauthorized links, and spam messages.', required: true },
+  { id: 'moderator:manage:banned_users', name: 'Scam Bot Bans & Timeouts', desc: 'Allows the bot to timeout and permanently ban fake viewbot accounts.', required: true },
+];
+
 // Central bot account scopes
-const BOT_SCOPES = [
+export const BOT_SCOPES = [
   'user:bot',
   'user:read:chat',
   'user:write:chat',
   'moderator:read:followers',
+  'moderator:manage:chat_messages',
+  'moderator:manage:banned_users',
 ].join(' ');
 
 // 1. Broadcaster OAuth initiation
