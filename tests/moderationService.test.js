@@ -6,6 +6,9 @@ import {
   containsLink,
   isExcessiveCaps,
   containsBannedWord,
+  countEmotes,
+  hasExcessiveEmotes,
+  isRepeatedTextSpam,
 } from '../src/services/moderationService.js';
 
 describe('Auto-Moderation Service', () => {
@@ -51,4 +54,79 @@ describe('Auto-Moderation Service', () => {
       assert.equal(containsBannedWord('Clean message', []), false);
     });
   });
+
+  describe('Emote Counting & Limit Gate', () => {
+    it('should count Twitch native emote fragments', () => {
+      const event = {
+        message: {
+          text: 'kappa kappa PogChamp',
+          fragments: [
+            { type: 'emote', text: 'kappa' },
+            { type: 'emote', text: 'kappa' },
+            { type: 'emote', text: 'PogChamp' },
+          ],
+        },
+      };
+      assert.equal(countEmotes(event), 3);
+    });
+
+    it('should count Unicode emojis in message text', () => {
+      const event = {
+        message: {
+          text: 'Hello chat! 🔥 🚀 🎮 🎉 💜',
+          fragments: [{ type: 'text', text: 'Hello chat! 🔥 🚀 🎮 🎉 💜' }],
+        },
+      };
+      assert.equal(countEmotes(event), 5);
+    });
+
+    it('should count combined Twitch fragments and Unicode emojis', () => {
+      const event = {
+        message: {
+          text: 'Cool! 😀 PogChamp 🔥',
+          fragments: [
+            { type: 'text', text: 'Cool! 😀 ' },
+            { type: 'emote', text: 'PogChamp' },
+            { type: 'text', text: ' 🔥' },
+          ],
+        },
+      };
+      assert.equal(countEmotes(event), 3); // 1 fragment + 2 unicode emojis
+    });
+
+    it('should evaluate hasExcessiveEmotes based on maxEmotes threshold', () => {
+      const event = {
+        message: {
+          text: '😀 😃 😄 😁 😆 😅 🤣',
+          fragments: [],
+        },
+      };
+      assert.equal(hasExcessiveEmotes(event, 5), true); // 7 emojis > 5
+      assert.equal(hasExcessiveEmotes(event, 10), false); // 7 emojis <= 10
+    });
+  });
+
+  describe('Repeated Text & Word Spam Detection', () => {
+    it('should detect character repetition spam', () => {
+      assert.equal(isRepeatedTextSpam('aaaaaaaaaaaaa', 4), true);
+      assert.equal(isRepeatedTextSpam('WWWWWWWWWWWW', 4), true);
+      assert.equal(isRepeatedTextSpam('hellooooo', 4), false); // 5 'o's, under threshold
+    });
+
+    it('should detect consecutive repeated words', () => {
+      assert.equal(isRepeatedTextSpam('spam spam spam spam spam', 3), true);
+      assert.equal(isRepeatedTextSpam('vote now vote now vote now vote now', 3), true);
+      assert.equal(isRepeatedTextSpam('hello hello world', 3), false);
+    });
+
+    it('should detect phrase repetition looping over the full message', () => {
+      assert.equal(isRepeatedTextSpam('sub now sub now sub now sub now sub now', 3), true);
+    });
+
+    it('should allow normal non-repetitive sentences', () => {
+      assert.equal(isRepeatedTextSpam('Hey everyone, thanks for tuning in to the broadcast today!'), false);
+      assert.equal(isRepeatedTextSpam('gg everyone that was an amazing speedrun attempt'), false);
+    });
+  });
 });
+

@@ -1,5 +1,6 @@
 import { getBotAccount, getChannel, getShoutoutSettings, getAutoShoutout, updateAutoShoutoutLastTime } from '../db/index.js';
 import { sendChatMessage, getChannelInformation, sendTwitchShoutout, getUserByLogin } from './twitchApi.js';
+import { recordActivity } from './activityService.js';
 
 // Cooldown tracker: `${channelId}` -> timestamp
 const shoutoutCooldowns = new Map();
@@ -87,6 +88,14 @@ export async function executeShoutout({
     broadcasterId: channel.id,
     senderId: bot.userId,
     message: formattedMessage,
+  });
+
+  recordActivity(channel.id, {
+    type: 'shoutout',
+    title: `Shoutout to @${cleanTarget}`,
+    detail: formattedMessage,
+    target: cleanTarget,
+    actor: requestedBy || null,
   });
 
   // 2. If Twitch Native Shoutout Banner is enabled and target user ID exists

@@ -1,4 +1,5 @@
 import { deleteChatMessage, timeoutUser, sendChatMessage } from './twitchApi.js';
+import { recordActivity } from './activityService.js';
 
 // Temporary link permits: `${channelId}:${username}` -> expiresAt (timestamp)
 const linkPermits = new Map();
@@ -57,6 +58,54 @@ export function containsBannedWord(text, bannedWords = []) {
 }
 
 /**
+ * Count total emotes in a chat message (Twitch native emote fragments + Unicode emojis).
+ */
+export function countEmotes(event) {
+  if (!event) return 0;
+  // 1. Twitch native emote fragments from EventSub payload
+  const fragments = event.message?.fragments || [];
+  const twitchEmotes = fragments.filter((f) => f.type === 'emote').length;
+
+  // 2. Unicode emojis in message text
+  const text = event.message?.text || '';
+  const emojiMatches = text.match(/[\p{Extended_Pictographic}\u{1F300}-\u{1F9FF}]/gu) || [];
+  const unicodeEmojis = emojiMatches.length;
+
+  return twitchEmotes + unicodeEmojis;
+}
+
+export function hasExcessiveEmotes(event, maxEmotes = 10) {
+  return countEmotes(event) > maxEmotes;
+}
+
+/**
+ * Detect repeated character or word spam in chat messages.
+ */
+export function isRepeatedTextSpam(text, maxRepetition = 4) {
+  if (!text || text.length < 10) return false;
+
+  // 1. Single character repeated many consecutive times (e.g. "aaaaaaaaaaaa" or "wwwwwwwwwwww")
+  const charThreshold = Math.max(8, maxRepetition * 2);
+  const charRegex = new RegExp(`(.)\\1{${charThreshold - 1},}`, 'i');
+  if (charRegex.test(text)) return true;
+
+  // 2. Consecutive repeated words (e.g. "spam spam spam spam spam")
+  const wordRegex = new RegExp(`\\b(\\w+)\\b(?:\\s+\\1\\b){${maxRepetition - 1},}`, 'i');
+  if (wordRegex.test(text)) return true;
+
+  // 3. Short phrase repetition over full message
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length >= maxRepetition * 2) {
+    const unique = new Set(words);
+    if (unique.size <= 2) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Run Auto-Moderation checks on a chat message.
  * Returns true if the message was moderated/deleted.
  */
@@ -65,6 +114,7 @@ export async function checkAutoModeration(event, channel, botId) {
   if (isPrivilegedUser(event, channel.id)) return false;
 
   const text = event.message?.text || '';
+  const chatterName = event.chatter_user_name || event.chatter_user_login || 'viewer';
 
   // 1. Link Protection
   if (moderation.filterLinks && containsLink(text) && !hasLinkPermit(channel.id, event.chatter_user_login)) {
@@ -76,7 +126,13 @@ export async function checkAutoModeration(event, channel, botId) {
     await sendChatMessage({
       broadcasterId: channel.id,
       senderId: botId,
-      message: `@${event.chatter_user_name}, links are not permitted in chat without a permit.`,
+      message: `@${chatterName}, links are not permitted in chat without a permit.`,
+    });
+    recordActivity(channel.id, {
+      type: 'moderation',
+      title: 'Link Removed',
+      detail: `Deleted unauthorized link posted by @${chatterName}`,
+      actor: chatterName,
     });
     return true;
   }
@@ -91,12 +147,63 @@ export async function checkAutoModeration(event, channel, botId) {
     await sendChatMessage({
       broadcasterId: channel.id,
       senderId: botId,
-      message: `@${event.chatter_user_name}, please refrain from excessive caps in chat.`,
+      message: `@${chatterName}, please refrain from excessive caps in chat.`,
+    });
+    recordActivity(channel.id, {
+      type: 'moderation',
+      title: 'Caps Warning',
+      detail: `Deleted message with excessive caps from @${chatterName}`,
+      actor: chatterName,
     });
     return true;
   }
 
-  // 3. Banned Words / Phrases Filter
+  // 3. Emote Limit Protection
+  const maxEmotes = moderation.maxEmotes || 10;
+  if (moderation.filterEmotes && hasExcessiveEmotes(event, maxEmotes)) {
+    const totalEmotes = countEmotes(event);
+    await deleteChatMessage({
+      broadcasterId: channel.id,
+      moderatorId: botId,
+      messageId: event.message_id,
+    });
+    await sendChatMessage({
+      broadcasterId: channel.id,
+      senderId: botId,
+      message: `@${chatterName}, please limit emotes in chat (max ${maxEmotes}).`,
+    });
+    recordActivity(channel.id, {
+      type: 'moderation',
+      title: 'Emote Limit Exceeded',
+      detail: `Deleted message with ${totalEmotes} emotes from @${chatterName} (limit: ${maxEmotes})`,
+      actor: chatterName,
+    });
+    return true;
+  }
+
+  // 4. Repeated Text / Spam Protection
+  const maxRep = moderation.maxRepetition || 4;
+  if (moderation.filterRepetition && isRepeatedTextSpam(text, maxRep)) {
+    await deleteChatMessage({
+      broadcasterId: channel.id,
+      moderatorId: botId,
+      messageId: event.message_id,
+    });
+    await sendChatMessage({
+      broadcasterId: channel.id,
+      senderId: botId,
+      message: `@${chatterName}, please avoid repeated text spam in chat.`,
+    });
+    recordActivity(channel.id, {
+      type: 'moderation',
+      title: 'Repetition Spam Removed',
+      detail: `Deleted repetitive spam message from @${chatterName}`,
+      actor: chatterName,
+    });
+    return true;
+  }
+
+  // 5. Banned Words / Phrases Filter
   if (containsBannedWord(text, moderation.bannedWords)) {
     await deleteChatMessage({
       broadcasterId: channel.id,
@@ -109,6 +216,12 @@ export async function checkAutoModeration(event, channel, botId) {
       userId: event.chatter_user_id,
       duration: 300,
       reason: 'Automated word filter violation',
+    });
+    recordActivity(channel.id, {
+      type: 'moderation',
+      title: 'Banned Word Timeout',
+      detail: `Timed out @${chatterName} for 300s due to blacklisted word violation`,
+      actor: chatterName,
     });
     return true;
   }

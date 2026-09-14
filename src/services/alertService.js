@@ -1,5 +1,6 @@
 import { getBotAccount, getChannel, getStreamAlertSettings } from '../db/index.js';
 import { sendChatMessage } from './twitchApi.js';
+import { recordActivity } from './activityService.js';
 
 /**
  * Human-readable tier label.
@@ -97,6 +98,12 @@ export async function executeFollowAlert(event, {
       senderId: bot.userId,
       message,
     });
+    recordActivity(channel.id, {
+      type: 'alert',
+      title: 'Follower Alert',
+      detail: message,
+      target: followerName,
+    });
     return { success: true, message };
   } catch (err) {
     console.warn(`[Alerts] Failed to send follower alert to #${channel.login}:`, err.message);
@@ -181,6 +188,11 @@ export async function executeSubscriptionAlert(event, subType, {
       broadcasterId: channel.id,
       senderId: bot.userId,
       message,
+    });
+    recordActivity(channel.id, {
+      type: 'alert',
+      title: subType === 'channel.subscription.gift' ? 'Gift Sub Alert' : 'Subscription Alert',
+      detail: message,
     });
     return { success: true, message, subType };
   } catch (err) {

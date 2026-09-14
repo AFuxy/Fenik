@@ -152,28 +152,35 @@ export function renderHomeView({ user = null, error = null, success = null }) {
 
   const content = `
     <main class="ks-container">
+    <!-- Floating Toast Notifications Container (Fixed overlay: never pushes content down) -->
+    <div class="ks-toast-container" id="ks-toast-container" aria-live="polite" aria-atomic="true">
       ${success ? `
-        <div class="ks-alert ks-alert-success" role="alert">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3.5 8.5L6.5 11.5L12.5 4.5"/>
-          </svg>
-          <div style="flex: 1;"><strong>Success:</strong> ${success}</div>
-          <button type="button" onclick="this.closest('.ks-alert').remove()" style="background:none;border:none;color:currentColor;opacity:0.6;cursor:pointer;padding:4px;display:flex;align-items:center;" aria-label="Dismiss">
+        <div class="ks-toast ks-toast-success" role="status">
+          <div class="ks-toast-body">
+            <svg class="ks-toast-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            <div class="ks-toast-text">${success}</div>
+          </div>
+          <button type="button" class="ks-toast-close" aria-label="Dismiss notification">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l10 10M12 2L2 12"/></svg>
           </button>
         </div>
       ` : ''}
       ${error ? `
-        <div class="ks-alert ks-alert-danger" role="alert">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 4l8 8M12 4l-8 8"/>
-          </svg>
-          <div style="flex: 1;"><strong>Error:</strong> ${error}</div>
-          <button type="button" onclick="this.closest('.ks-alert').remove()" style="background:none;border:none;color:currentColor;opacity:0.6;cursor:pointer;padding:4px;display:flex;align-items:center;" aria-label="Dismiss">
+        <div class="ks-toast ks-toast-error" role="alert">
+          <div class="ks-toast-body">
+            <svg class="ks-toast-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <div class="ks-toast-text">${error}</div>
+          </div>
+          <button type="button" class="ks-toast-close" aria-label="Dismiss notification">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l10 10M12 2L2 12"/></svg>
           </button>
         </div>
       ` : ''}
+    </div>
 
       <!-- Hero Section -->
       <section class="ks-hero">
@@ -299,6 +306,62 @@ export function renderHomeView({ user = null, error = null, success = null }) {
           </div>
         </div>
       </section>
+
+      <script>
+        (function() {
+          function dismissToast(toast) {
+            if (!toast || toast.classList.contains('is-leaving')) return;
+            toast.classList.add('is-leaving');
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(8px) scale(0.96)';
+            setTimeout(function() {
+              if (toast.parentNode) toast.parentNode.removeChild(toast);
+            }, 240);
+          }
+
+          function setupToast(toast, duration) {
+            if (!toast) return;
+            var timer = null;
+            var remaining = duration || 4500;
+            var startTime = Date.now();
+
+            function startTimer() {
+              startTime = Date.now();
+              timer = setTimeout(function() {
+                dismissToast(toast);
+              }, remaining);
+            }
+
+            function pauseTimer() {
+              if (timer) {
+                clearTimeout(timer);
+                timer = null;
+                var elapsed = Date.now() - startTime;
+                remaining = Math.max(1500, remaining - elapsed);
+              }
+            }
+
+            startTimer();
+
+            toast.addEventListener('mouseenter', pauseTimer);
+            toast.addEventListener('mouseleave', startTimer);
+
+            var closeBtn = toast.querySelector('.ks-toast-close');
+            if (closeBtn) {
+              closeBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (timer) clearTimeout(timer);
+                dismissToast(toast);
+              });
+            }
+          }
+
+          document.querySelectorAll('.ks-toast').forEach(function(toast) {
+            var isError = toast.classList.contains('ks-toast-error');
+            setupToast(toast, isError ? 6000 : 4500);
+          });
+        })();
+      </script>
     </main>
   `;
 

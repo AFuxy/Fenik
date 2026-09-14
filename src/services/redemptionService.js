@@ -6,6 +6,7 @@ import {
   recordRedemptionTriggerExecution,
 } from '../db/index.js';
 import { sendChatMessage, getStreamInfo, getChannelInformation } from './twitchApi.js';
+import { recordActivity } from './activityService.js';
 
 /**
  * Format channel point reward trigger message with dynamic variables.
@@ -158,6 +159,12 @@ export async function executeRedemptionTrigger(event, {
       broadcasterId: channel.id,
       senderId: bot.userId,
       message,
+    });
+    recordActivity(channel.id, {
+      type: 'reward',
+      title: `Reward "${rewardTitle}"`,
+      detail: message,
+      actor: redeemerName,
     });
     return { success: true, trigger: matchingTrigger, message };
   } catch (err) {

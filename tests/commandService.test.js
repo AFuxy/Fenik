@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { hasPermission, formatResponse } from '../src/services/commandService.js';
+import { hasPermission, formatResponse, handleChatMessage } from '../src/services/commandService.js';
 import { formatDuration, formatFollowage } from '../src/services/twitchApi.js';
 
 describe('Command Execution Service', () => {
@@ -246,6 +246,134 @@ describe('Command Execution Service', () => {
         output,
         '[CoolStreamer] Live for 3h 40m playing Valorant! Chat rules: no spam. Counter: #42'
       );
+    });
+  });
+
+  describe('Custom Command Aliases & Execution', () => {
+    it('should trigger a command when called via any of its configured aliases', async () => {
+      const channel = {
+        id: 'alias-ch-1',
+        login: 'aliastester',
+        displayName: 'AliasTester',
+        prefix: '!',
+        commands: [
+          {
+            id: 'cmd-discord',
+            trigger: 'discord',
+            aliases: 'dc, disc, chatcord',
+            response: 'Join our Discord: https://discord.gg/test',
+            userlevel: 'everyone',
+            cooldown: 5,
+            enabled: true,
+          },
+        ],
+      };
+
+      const sentMessages = [];
+      const sendChatFn = async ({ message }) => {
+        sentMessages.push(message);
+      };
+
+      // Call via primary trigger
+      await handleChatMessage(
+        { message: { text: '!discord' }, chatter_user_name: 'viewer1', chatter_user_id: '111' },
+        { channel, botId: 'bot-1', sendChatFn }
+      );
+      assert.equal(sentMessages.length, 1);
+      assert.equal(sentMessages[0], 'Join our Discord: https://discord.gg/test');
+
+      // Call via alias !dc (alter command id to avoid active cooldown in test)
+      channel.commands[0].id = 'cmd-discord-2';
+      await handleChatMessage(
+        { message: { text: '!dc' }, chatter_user_name: 'viewer2', chatter_user_id: '222' },
+        { channel, botId: 'bot-1', sendChatFn }
+      );
+      assert.equal(sentMessages.length, 2);
+      assert.equal(sentMessages[1], 'Join our Discord: https://discord.gg/test');
+    });
+
+    it('should share cooldown between the primary command trigger and its aliases', async () => {
+      const channel = {
+        id: 'shared-cd-ch',
+        login: 'cdtester',
+        prefix: '!',
+        commands: [
+          {
+            id: 'cmd-shared-cd',
+            trigger: 'twitter',
+            aliases: 'x, twt',
+            response: 'Follow on Twitter: @streamer',
+            userlevel: 'everyone',
+            cooldown: 60, // 60s cooldown
+            enabled: true,
+          },
+        ],
+      };
+
+      const sentMessages = [];
+      const sendChatFn = async ({ message }) => {
+        sentMessages.push(message);
+      };
+
+      // 1. First execution via primary trigger !twitter
+      await handleChatMessage(
+        { message: { text: '!twitter' }, chatter_user_name: 'viewer1', chatter_user_id: '111' },
+        { channel, botId: 'bot-1', sendChatFn }
+      );
+      assert.equal(sentMessages.length, 1);
+
+      // 2. Immediately try executing via alias !x -> must be blocked by shared cooldown!
+      await handleChatMessage(
+        { message: { text: '!x' }, chatter_user_name: 'viewer2', chatter_user_id: '222' },
+        { channel, botId: 'bot-1', sendChatFn }
+      );
+      assert.equal(sentMessages.length, 1); // Still 1!
+
+      // 3. Immediately try executing via alias !twt -> must also be blocked
+      await handleChatMessage(
+        { message: { text: '!twt' }, chatter_user_name: 'viewer3', chatter_user_id: '333' },
+        { channel, botId: 'bot-1', sendChatFn }
+      );
+      assert.equal(sentMessages.length, 1); // Still 1!
+    });
+
+    it('should enforce userlevel permissions when invoked via alias', async () => {
+      const channel = {
+        id: 'perm-alias-ch',
+        login: 'permtester',
+        prefix: '!',
+        commands: [
+          {
+            id: 'cmd-mod-alias',
+            trigger: 'secret',
+            aliases: 'shh, vipzone',
+            response: 'Top secret moderator info',
+            userlevel: 'mod',
+            cooldown: 5,
+            enabled: true,
+          },
+        ],
+      };
+
+      const sentMessages = [];
+      const sendChatFn = async ({ message }) => {
+        sentMessages.push(message);
+      };
+
+      // Non-mod user calls alias !shh
+      await handleChatMessage(
+        { message: { text: '!shh' }, chatter_user_name: 'regular', chatter_user_id: '555', badges: [] },
+        { channel, botId: 'bot-1', sendChatFn }
+      );
+      assert.equal(sentMessages.length, 0);
+
+      // Mod user calls alias !shh
+      await handleChatMessage(
+        { message: { text: '!shh' }, chatter_user_name: 'moderator1', chatter_user_id: '666', badges: [{ set_id: 'moderator', id: '1' }] },
+        { channel, botId: 'bot-1', sendChatFn }
+      );
+      assert.equal(sentMessages.length, 1);
+      assert.equal(sentMessages[0], 'Top secret moderator info');
     });
   });
 });

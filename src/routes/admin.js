@@ -42,6 +42,14 @@ adminRouter.get('/', requireAdmin, async (req, res) => {
   const success = req.flash?.success;
   const error = req.flash?.error;
 
+  // Validate central bot token scopes
+  let botTokenInfo = { valid: false, scopes: [] };
+  if (bot && bot.accessToken) {
+    try {
+      botTokenInfo = await validateUserToken(bot.accessToken);
+    } catch (_) {}
+  }
+
   // Enrich each channel with real-time Getting Started checklist & permissions
   const enrichedChannels = await Promise.all(
     channels.map(async (ch) => {
@@ -111,7 +119,7 @@ adminRouter.get('/', requireAdmin, async (req, res) => {
   };
 
   const html = renderAdminView({
-    bot,
+    bot: bot ? { ...bot, tokenInfo: botTokenInfo } : null,
     channels: enrichedChannels,
     stats,
     user: req.user,

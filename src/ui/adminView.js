@@ -29,30 +29,36 @@ export function renderAdminView({
   const content = `
     <div class="ks-container" style="max-width: 1320px;">
       
-      <!-- Alert Flash Messages -->
-      ${success ? `
-        <div class="ks-alert ks-alert-success" role="alert" style="margin-bottom: 20px;">
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3.5 8.5L6.5 11.5L12.5 4.5"/>
-          </svg>
-          <div style="flex: 1;"><strong>Success:</strong> ${escapeHtml(success)}</div>
-          <button type="button" onclick="this.closest('.ks-alert').remove()" style="background:none;border:none;color:currentColor;opacity:0.6;cursor:pointer;padding:4px;display:flex;align-items:center;" aria-label="Dismiss">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l10 10M12 2L2 12"/></svg>
-          </button>
-        </div>
-      ` : ''}
+      <!-- Floating Toast Notifications Container (Fixed overlay: never pushes content down) -->
+      <div class="ks-toast-container" id="ks-toast-container" aria-live="polite" aria-atomic="true">
+        ${success ? `
+          <div class="ks-toast ks-toast-success" role="status">
+            <div class="ks-toast-body">
+              <svg class="ks-toast-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>
+              </svg>
+              <div class="ks-toast-text">${escapeHtml(success)}</div>
+            </div>
+            <button type="button" class="ks-toast-close" aria-label="Dismiss notification">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l10 10M12 2L2 12"/></svg>
+            </button>
+          </div>
+        ` : ''}
 
-      ${error ? `
-        <div class="ks-alert ks-alert-danger" role="alert" style="margin-bottom: 20px;">
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 4l8 8M12 4l-8 8"/>
-          </svg>
-          <div style="flex: 1;"><strong>Error:</strong> ${escapeHtml(error)}</div>
-          <button type="button" onclick="this.closest('.ks-alert').remove()" style="background:none;border:none;color:currentColor;opacity:0.6;cursor:pointer;padding:4px;display:flex;align-items:center;" aria-label="Dismiss">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l10 10M12 2L2 12"/></svg>
-          </button>
-        </div>
-      ` : ''}
+        ${error ? `
+          <div class="ks-toast ks-toast-error" role="alert">
+            <div class="ks-toast-body">
+              <svg class="ks-toast-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <div class="ks-toast-text">${escapeHtml(error)}</div>
+            </div>
+            <button type="button" class="ks-toast-close" aria-label="Dismiss notification">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l10 10M12 2L2 12"/></svg>
+            </button>
+          </div>
+        ` : ''}
+      </div>
 
       <!-- Host Control Top Header -->
       <header style="display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 24px;">
@@ -165,6 +171,18 @@ export function renderAdminView({
               <div style="font-family: var(--ks-mono); font-size: 0.78rem; color: var(--ks-text-muted); margin-top: 2px;">
                 ${bot ? `Twitch User ID: ${bot.userId} · Chat Presence: Multi-Channel EventSub WebSocket` : 'Connect a dedicated bot account to enable automated chat responses'}
               </div>
+              ${bot?.tokenInfo ? `
+                <div style="margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                  <span class="ks-tag ks-tag-patina" style="font-size: 0.72rem;">✓ Chat & Raids Active</span>
+                  ${bot.tokenInfo.scopes?.includes('moderator:read:followers') ? `
+                    <span class="ks-tag ks-tag-patina" style="font-size: 0.72rem;">✓ Follower Alerts Scope Granted</span>
+                  ` : `
+                    <span class="ks-tag ks-tag-vermilion" style="font-size: 0.72rem;" title="Bot needs 'moderator:read:followers' scope to listen to follower events. Click 'Re-authorize Bot Account' to update.">
+                      ⚠ Follower Scope Missing (Re-authorize to enable follower alerts)
+                    </span>
+                  `}
+                </div>
+              ` : ''}
             </div>
           </div>
 
@@ -196,6 +214,7 @@ export function renderAdminView({
               type="text" 
               id="adminStreamerFilter" 
               class="ks-input-text" 
+              aria-label="Filter streamers by name, login, or ID"
               placeholder="Filter by streamer name, login, or ID..." 
               style="font-size: 0.84rem; min-height: 34px;"
             />
@@ -369,7 +388,15 @@ export function renderAdminView({
       </section>
 
       <!-- Account Deletion Confirmation Modal -->
-      <div id="deleteAccountModal" class="ks-modal-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.78); backdrop-filter: blur(4px); z-index: 9999; align-items: center; justify-content: center; padding: 16px;">
+      <div 
+        id="deleteAccountModal" 
+        class="ks-modal-backdrop" 
+        role="alertdialog" 
+        aria-modal="true" 
+        aria-labelledby="deleteModalTitle" 
+        aria-describedby="deleteModalDesc" 
+        style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.78); backdrop-filter: blur(4px); z-index: 9999; align-items: center; justify-content: center; padding: 16px;"
+      >
         <div class="ks-card" style="max-width: 520px; width: 100%; border-color: var(--ks-vermilion); box-shadow: 0 20px 40px rgba(0,0,0,0.8); background: var(--ks-raised-lacquer); padding: 24px;">
           
           <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px;">
@@ -382,17 +409,17 @@ export function renderAdminView({
                 </svg>
               </div>
               <div>
-                <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--ks-champagne); margin: 0;">Permanently Delete Account</h3>
+                <h3 id="deleteModalTitle" style="font-size: 1.15rem; font-weight: 700; color: var(--ks-champagne); margin: 0;">Permanently Delete Account</h3>
                 <div style="font-size: 0.78rem; color: var(--ks-text-muted);">Irreversible channel and user purge</div>
               </div>
             </div>
             
-            <button type="button" id="closeDeleteModalBtn" style="background: none; border: none; color: var(--ks-text-muted); cursor: pointer; padding: 4px;">
+            <button type="button" id="closeDeleteModalBtn" aria-label="Close delete confirmation dialog" style="background: none; border: none; color: var(--ks-text-muted); cursor: pointer; padding: 4px;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
             </button>
           </div>
 
-          <p style="font-size: 0.86rem; color: var(--ks-text-warm); line-height: 1.5; margin-bottom: 16px;">
+          <p id="deleteModalDesc" style="font-size: 0.86rem; color: var(--ks-text-warm); line-height: 1.5; margin-bottom: 16px;">
             Are you sure you want to completely delete <strong id="modalTargetStreamerName" style="color: var(--ks-champagne);">@streamer</strong> (<code id="modalTargetStreamerLogin" style="font-family: var(--ks-mono); color: var(--ks-kinpaku);">streamer</code>)?
           </p>
 
@@ -469,8 +496,10 @@ export function renderAdminView({
         var modalTargetId = document.getElementById('modalTargetChannelId');
         var closeModalBtn = document.getElementById('closeDeleteModalBtn');
         var cancelDeleteBtn = document.getElementById('cancelDeleteBtn');
+        var activeTriggerBtn = null;
 
         function openModal(btn) {
+          activeTriggerBtn = btn;
           var id = btn.getAttribute('data-channel-id');
           var name = btn.getAttribute('data-channel-name');
           var login = btn.getAttribute('data-channel-login');
@@ -483,6 +512,9 @@ export function renderAdminView({
           if (modal) {
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
+            if (cancelDeleteBtn) {
+              setTimeout(function() { cancelDeleteBtn.focus(); }, 40);
+            }
           }
         }
 
@@ -490,6 +522,10 @@ export function renderAdminView({
           if (modal) {
             modal.style.display = 'none';
             document.body.style.overflow = '';
+            if (activeTriggerBtn && typeof activeTriggerBtn.focus === 'function') {
+              activeTriggerBtn.focus();
+            }
+            activeTriggerBtn = null;
           }
         }
 
@@ -510,9 +546,82 @@ export function renderAdminView({
         if (cancelDeleteBtn) cancelDeleteBtn.addEventListener('click', closeModal);
 
         document.addEventListener('keydown', function(e) {
-          if (e.key === 'Escape' && modal && modal.style.display === 'flex') {
+          if (!modal || modal.style.display !== 'flex') return;
+
+          if (e.key === 'Escape') {
+            e.preventDefault();
             closeModal();
+            return;
           }
+
+          if (e.key === 'Tab') {
+            var focusable = modal.querySelectorAll('button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+            if (focusable.length === 0) return;
+            var first = focusable[0];
+            var last = focusable[focusable.length - 1];
+
+            if (e.shiftKey && document.activeElement === first) {
+              e.preventDefault();
+              last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault();
+              first.focus();
+            }
+          }
+        });
+
+        // --- Toast Lifecycle Management ---
+        function dismissToast(toast) {
+          if (!toast || toast.classList.contains('is-leaving')) return;
+          toast.classList.add('is-leaving');
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateY(8px) scale(0.96)';
+          setTimeout(function() {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+          }, 240);
+        }
+
+        function setupToast(toast, duration) {
+          if (!toast) return;
+          var timer = null;
+          var remaining = duration || 4500;
+          var startTime = Date.now();
+
+          function startTimer() {
+            startTime = Date.now();
+            timer = setTimeout(function() {
+              dismissToast(toast);
+            }, remaining);
+          }
+
+          function pauseTimer() {
+            if (timer) {
+              clearTimeout(timer);
+              timer = null;
+              var elapsed = Date.now() - startTime;
+              remaining = Math.max(1500, remaining - elapsed);
+            }
+          }
+
+          startTimer();
+
+          toast.addEventListener('mouseenter', pauseTimer);
+          toast.addEventListener('mouseleave', startTimer);
+
+          var closeBtn = toast.querySelector('.ks-toast-close');
+          if (closeBtn) {
+            closeBtn.addEventListener('click', function(e) {
+              e.stopPropagation();
+              if (timer) clearTimeout(timer);
+              dismissToast(toast);
+            });
+          }
+        }
+
+        // Auto-dismiss initial toasts on page load
+        document.querySelectorAll('.ks-toast').forEach(function(toast) {
+          var isError = toast.classList.contains('ks-toast-error');
+          setupToast(toast, isError ? 6000 : 4500);
         });
       })();
     </script>

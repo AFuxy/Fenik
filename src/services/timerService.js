@@ -1,5 +1,6 @@
 import { getBotAccount, getAllActiveTimers, updateTimerLastRun } from '../db/index.js';
 import { sendChatMessage, getStreamInfo, getChannelInformation } from './twitchApi.js';
+import { recordActivity } from './activityService.js';
 
 // Total chat lines per channel: channelId -> lineCount
 const channelLineCounters = new Map();
@@ -143,6 +144,12 @@ export async function processTimerTick({ now = Date.now(), sendFn = sendChatMess
         updateTimerLastRun(channelId, timer.id, now);
         // Record line snapshot
         timerLastRunLines.set(timer.id, currentLines);
+
+        recordActivity(channelId, {
+          type: 'timer',
+          title: `Timer "${timer.name}"`,
+          detail: message,
+        });
 
         executed.push({
           timerId: timer.id,

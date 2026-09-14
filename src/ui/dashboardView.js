@@ -117,29 +117,36 @@ export function renderDashboardView({
 
   const content = `
     <div class="ks-container">
+    <!-- Floating Toast Notifications Container (Fixed overlay: never pushes content down) -->
+    <div class="ks-toast-container" id="ks-toast-container" aria-live="polite" aria-atomic="true">
       ${success ? `
-        <div class="ks-alert ks-alert-success" role="alert">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3.5 8.5L6.5 11.5L12.5 4.5"/>
-          </svg>
-          <div style="flex: 1;"><strong>Success:</strong> ${success}</div>
-          <button type="button" onclick="this.closest('.ks-alert').remove()" style="background:none;border:none;color:currentColor;opacity:0.6;cursor:pointer;padding:4px;display:flex;align-items:center;" aria-label="Dismiss">
+        <div class="ks-toast ks-toast-success" role="status">
+          <div class="ks-toast-body">
+            <svg class="ks-toast-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            <div class="ks-toast-text">${escapeAttr(success)}</div>
+          </div>
+          <button type="button" class="ks-toast-close" aria-label="Dismiss notification">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l10 10M12 2L2 12"/></svg>
           </button>
         </div>
       ` : ''}
 
       ${error ? `
-        <div class="ks-alert ks-alert-danger" role="alert">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 4l8 8M12 4l-8 8"/>
-          </svg>
-          <div style="flex: 1;"><strong>Error:</strong> ${error}</div>
-          <button type="button" onclick="this.closest('.ks-alert').remove()" style="background:none;border:none;color:currentColor;opacity:0.6;cursor:pointer;padding:4px;display:flex;align-items:center;" aria-label="Dismiss">
+        <div class="ks-toast ks-toast-error" role="alert">
+          <div class="ks-toast-body">
+            <svg class="ks-toast-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <div class="ks-toast-text">${escapeAttr(error)}</div>
+          </div>
+          <button type="button" class="ks-toast-close" aria-label="Dismiss notification">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l10 10M12 2L2 12"/></svg>
           </button>
         </div>
       ` : ''}
+    </div>
 
       <!-- Channel Profile & Bot Status -->
       <header class="ks-channel-header">
@@ -179,7 +186,7 @@ export function renderDashboardView({
             <input type="hidden" name="channelId" value="${channel.id}">
             <input type="hidden" name="joined" value="${channel.joined ? '' : '1'}">
             <span style="font-size: 0.85rem; color: var(--ks-text-secondary); font-weight: 500;">
-              Bot: <strong style="color: ${channel.joined ? 'var(--ks-gold)' : 'var(--ks-text-muted)'};">${channel.joined ? 'Active' : 'Paused'}</strong>
+              Bot: <strong style="color: ${channel.joined ? 'var(--ks-kinpaku)' : 'var(--ks-text-muted)'};">${channel.joined ? 'Active' : 'Paused'}</strong>
             </span>
             <button 
               type="submit" 
@@ -216,11 +223,20 @@ export function renderDashboardView({
             </button>
           </div>
 
-          <div class="ks-sidebar-inner">
+          <div class="ks-sidebar-inner" role="tablist" aria-orientation="vertical" aria-label="Dashboard navigation">
 
             <!-- 0. Getting Started & Setup Item -->
             <div style="margin-bottom: 10px;">
-              <button type="button" data-tab="overview" class="ks-sidebar-item ${activeTab === 'overview' ? 'active' : ''}" style="border-radius: var(--ks-radius-sm); padding: 8px 12px; font-weight: 600;">
+              <button 
+                type="button" 
+                role="tab" 
+                id="tab-btn-overview" 
+                aria-controls="tab-overview" 
+                aria-selected="${activeTab === 'overview' ? 'true' : 'false'}" 
+                data-tab="overview" 
+                class="ks-sidebar-item ${activeTab === 'overview' ? 'active' : ''}" 
+                style="border-radius: var(--ks-radius-sm); padding: 8px 12px; font-weight: 600;"
+              >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ks-kinpaku);">
                   <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path>
                   <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"></path>
@@ -249,7 +265,15 @@ export function renderDashboardView({
               </button>
 
               <div class="ks-sidebar-items">
-                <button type="button" data-tab="commands" class="ks-sidebar-item ${activeTab === 'commands' ? 'active' : ''}">
+                <button 
+                  type="button" 
+                  role="tab" 
+                  id="tab-btn-commands" 
+                  aria-controls="tab-commands" 
+                  aria-selected="${activeTab === 'commands' ? 'true' : 'false'}" 
+                  data-tab="commands" 
+                  class="ks-sidebar-item ${activeTab === 'commands' ? 'active' : ''}"
+                >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="4 17 10 11 4 5"></polyline>
                     <line x1="12" y1="19" x2="20" y2="19"></line>
@@ -258,7 +282,15 @@ export function renderDashboardView({
                   <span class="ks-tag ks-tag-gold" style="font-size: 0.68rem; padding: 1px 6px; margin-left: auto;">${channel.commands?.length || 0}</span>
                 </button>
 
-                <button type="button" data-tab="builtins" class="ks-sidebar-item ${activeTab === 'builtins' ? 'active' : ''}">
+                <button 
+                  type="button" 
+                  role="tab" 
+                  id="tab-btn-builtins" 
+                  aria-controls="tab-builtins" 
+                  aria-selected="${activeTab === 'builtins' ? 'true' : 'false'}" 
+                  data-tab="builtins" 
+                  class="ks-sidebar-item ${activeTab === 'builtins' ? 'active' : ''}"
+                >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
                   </svg>
@@ -266,7 +298,15 @@ export function renderDashboardView({
                   <span class="ks-tag ${activeBuiltinCount > 0 ? 'ks-tag-gold' : ''}" style="font-size: 0.68rem; padding: 1px 6px; margin-left: auto;">${activeBuiltinCount}/${BUILTIN_COMMANDS.length}</span>
                 </button>
 
-                <button type="button" data-tab="timers" class="ks-sidebar-item ${activeTab === 'timers' ? 'active' : ''}">
+                <button 
+                  type="button" 
+                  role="tab" 
+                  id="tab-btn-timers" 
+                  aria-controls="tab-timers" 
+                  aria-selected="${activeTab === 'timers' ? 'true' : 'false'}" 
+                  data-tab="timers" 
+                  class="ks-sidebar-item ${activeTab === 'timers' ? 'active' : ''}"
+                >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="10"></circle>
                     <polyline points="12 6 12 12 16 14"></polyline>
@@ -275,7 +315,15 @@ export function renderDashboardView({
                   <span class="ks-tag ${activeTimerCount > 0 ? 'ks-tag-gold' : ''}" style="font-size: 0.68rem; padding: 1px 6px; margin-left: auto;">${activeTimerCount}/${timers.length}</span>
                 </button>
 
-                <button type="button" data-tab="raids" class="ks-sidebar-item ${activeTab === 'raids' ? 'active' : ''}">
+                <button 
+                  type="button" 
+                  role="tab" 
+                  id="tab-btn-raids" 
+                  aria-controls="tab-raids" 
+                  aria-selected="${activeTab === 'raids' ? 'true' : 'false'}" 
+                  data-tab="raids" 
+                  class="ks-sidebar-item ${activeTab === 'raids' ? 'active' : ''}"
+                >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
                     <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
@@ -287,7 +335,15 @@ export function renderDashboardView({
                   </span>
                 </button>
 
-                <button type="button" data-tab="shoutouts" class="ks-sidebar-item ${activeTab === 'shoutouts' ? 'active' : ''}">
+                <button 
+                  type="button" 
+                  role="tab" 
+                  id="tab-btn-shoutouts" 
+                  aria-controls="tab-shoutouts" 
+                  aria-selected="${activeTab === 'shoutouts' ? 'true' : 'false'}" 
+                  data-tab="shoutouts" 
+                  class="ks-sidebar-item ${activeTab === 'shoutouts' ? 'active' : ''}"
+                >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
                   </svg>
@@ -314,7 +370,15 @@ export function renderDashboardView({
               </button>
 
               <div class="ks-sidebar-items">
-                <button type="button" data-tab="alerts" class="ks-sidebar-item ${activeTab === 'alerts' ? 'active' : ''}">
+                <button 
+                  type="button" 
+                  role="tab" 
+                  id="tab-btn-alerts" 
+                  aria-controls="tab-alerts" 
+                  aria-selected="${activeTab === 'alerts' ? 'true' : 'false'}" 
+                  data-tab="alerts" 
+                  class="ks-sidebar-item ${activeTab === 'alerts' ? 'active' : ''}"
+                >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                     <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
@@ -325,7 +389,15 @@ export function renderDashboardView({
                   </span>
                 </button>
 
-                <button type="button" data-tab="rewards" class="ks-sidebar-item ${activeTab === 'rewards' ? 'active' : ''}">
+                <button 
+                  type="button" 
+                  role="tab" 
+                  id="tab-btn-rewards" 
+                  aria-controls="tab-rewards" 
+                  aria-selected="${activeTab === 'rewards' ? 'true' : 'false'}" 
+                  data-tab="rewards" 
+                  class="ks-sidebar-item ${activeTab === 'rewards' ? 'active' : ''}"
+                >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="9"></circle>
                     <path d="M12 7v10M9 10h6"></path>
@@ -353,13 +425,21 @@ export function renderDashboardView({
               </button>
 
               <div class="ks-sidebar-items">
-                <button type="button" data-tab="moderation" class="ks-sidebar-item ${activeTab === 'moderation' ? 'active' : ''}">
+                <button 
+                  type="button" 
+                  role="tab" 
+                  id="tab-btn-moderation" 
+                  aria-controls="tab-moderation" 
+                  aria-selected="${activeTab === 'moderation' ? 'true' : 'false'}" 
+                  data-tab="moderation" 
+                  class="ks-sidebar-item ${activeTab === 'moderation' ? 'active' : ''}"
+                >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="10"></circle>
                     <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
                   </svg>
                   <span class="ks-sidebar-item-label">Auto-Moderation</span>
-                  ${(channel.moderation?.filterLinks || channel.moderation?.filterCaps || (channel.moderation?.bannedWords && channel.moderation?.bannedWords.length > 0)) ? `
+                  ${(channel.moderation?.filterLinks || channel.moderation?.filterCaps || channel.moderation?.filterEmotes || channel.moderation?.filterRepetition || (channel.moderation?.bannedWords && channel.moderation?.bannedWords.length > 0)) ? `
                     <span class="ks-tag ks-tag-gold" style="font-size: 0.68rem; padding: 1px 6px; margin-left: auto;">On</span>
                   ` : ''}
                 </button>
@@ -382,7 +462,15 @@ export function renderDashboardView({
               </button>
 
               <div class="ks-sidebar-items">
-                <button type="button" data-tab="prefix" class="ks-sidebar-item ${activeTab === 'prefix' ? 'active' : ''}">
+                <button 
+                  type="button" 
+                  role="tab" 
+                  id="tab-btn-prefix" 
+                  aria-controls="tab-prefix" 
+                  aria-selected="${activeTab === 'prefix' ? 'true' : 'false'}" 
+                  data-tab="prefix" 
+                  class="ks-sidebar-item ${activeTab === 'prefix' ? 'active' : ''}"
+                >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="4" y1="9" x2="20" y2="9"></line>
                     <line x1="4" y1="15" x2="20" y2="15"></line>
@@ -393,7 +481,15 @@ export function renderDashboardView({
                   <span class="ks-tag ks-tag-gold" style="font-family: var(--ks-mono); font-size: 0.68rem; padding: 1px 6px; margin-left: auto;">${currentPrefix}</span>
                 </button>
 
-                <button type="button" data-tab="managers" class="ks-sidebar-item ${activeTab === 'managers' ? 'active' : ''}">
+                <button 
+                  type="button" 
+                  role="tab" 
+                  id="tab-btn-managers" 
+                  aria-controls="tab-managers" 
+                  aria-selected="${activeTab === 'managers' ? 'true' : 'false'}" 
+                  data-tab="managers" 
+                  class="ks-sidebar-item ${activeTab === 'managers' ? 'active' : ''}"
+                >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
                     <circle cx="9" cy="7" r="4"></circle>
@@ -404,7 +500,15 @@ export function renderDashboardView({
                   <span class="ks-tag" style="font-size: 0.68rem; padding: 1px 6px; margin-left: auto;">${channel.managers?.length || 0}</span>
                 </button>
 
-                <button type="button" data-tab="test" class="ks-sidebar-item ${activeTab === 'test' ? 'active' : ''}">
+                <button 
+                  type="button" 
+                  role="tab" 
+                  id="tab-btn-test" 
+                  aria-controls="tab-test" 
+                  aria-selected="${activeTab === 'test' ? 'true' : 'false'}" 
+                  data-tab="test" 
+                  class="ks-sidebar-item ${activeTab === 'test' ? 'active' : ''}"
+                >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13"></line>
                     <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -421,7 +525,7 @@ export function renderDashboardView({
         <main class="ks-dashboard-main">
 
       <!-- 0. GETTING STARTED & SETUP OVERVIEW TAB -->
-      <div id="tab-overview" class="ks-tab-content ${activeTab === 'overview' ? 'active' : ''}">
+      <div id="tab-overview" class="ks-tab-content ${activeTab === 'overview' ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-btn-overview" tabindex="0">
         
         <!-- Welcome Hero & Readiness Bar -->
         <section class="ks-card" style="border-color: ${percentReady === 100 ? 'var(--ks-gold-hairline)' : 'var(--ks-rule)'}; margin-bottom: 24px;">
@@ -447,8 +551,15 @@ export function renderDashboardView({
           </div>
 
           <!-- Progress Bar Track -->
-          <div style="width: 100%; height: 8px; background: var(--ks-lacquer-deep); border-radius: 99px; overflow: hidden; border: 1px solid var(--ks-rule);">
-            <div style="width: ${percentReady}%; height: 100%; background: ${percentReady === 100 ? 'linear-gradient(90deg, var(--ks-kinpaku-rich), var(--ks-kinpaku))' : 'linear-gradient(90deg, var(--ks-patina-deep), var(--ks-patina))'}; transition: width 0.4s ease;"></div>
+          <div 
+            role="progressbar" 
+            aria-valuenow="${percentReady}" 
+            aria-valuemin="0" 
+            aria-valuemax="100" 
+            aria-label="Platform Readiness" 
+            style="width: 100%; height: 8px; background: var(--ks-lacquer-deep); border-radius: 99px; overflow: hidden; border: 1px solid var(--ks-rule);"
+          >
+            <div style="width: 100%; height: 100%; transform: scaleX(${percentReady / 100}); transform-origin: left; background: ${percentReady === 100 ? 'linear-gradient(90deg, var(--ks-kinpaku-rich), var(--ks-kinpaku))' : 'linear-gradient(90deg, var(--ks-patina-deep), var(--ks-patina))'}; transition: transform 0.4s var(--ks-ease); will-change: transform;"></div>
           </div>
         </section>
 
@@ -642,10 +753,10 @@ export function renderDashboardView({
                 Broadcast an instant test message from the bot into #${channel.login} to confirm live message delivery.
               </p>
 
-              <form action="/api/test/message" method="POST" id="overviewTestForm">
+              <form action="/api/send-test" method="POST" id="overviewTestForm" class="ks-async-test-form">
                 <input type="hidden" name="channelId" value="${channel.id}" />
                 <div class="ks-form-group" style="margin-bottom: 12px;">
-                  <input type="text" name="message" class="ks-input-text" value="Hello chat! @${escapeAttr(bot?.displayName || bot?.login || config.botName)} is active and ready." required maxlength="200" style="font-size: 0.85rem;" />
+                  <input type="text" id="overviewTestMsg" aria-label="Broadcast test chat message" name="message" class="ks-input-text" value="Hello chat! @${escapeAttr(bot?.displayName || bot?.login || config.botName)} is active and ready." required maxlength="200" style="font-size: 0.85rem;" />
                 </div>
                 <button type="submit" class="ks-button ks-button-primary" style="width: 100%; justify-content: center;">
                   <span>Dispatch Message to Chat</span>
@@ -660,6 +771,43 @@ export function renderDashboardView({
           </div>
 
         </div>
+
+        <!-- Live Bot Activity Stream Section -->
+        <section class="ks-card" style="margin-bottom: 24px;">
+          <div class="ks-card-header" style="margin-bottom: 14px;">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <h3 class="ks-card-title" style="margin: 0;">Live Bot Activity Stream</h3>
+              <span class="ks-tag ks-tag-patina" style="font-size: 0.72rem; display: inline-flex; align-items: center; gap: 5px;">
+                <span class="ks-dot-live" style="width: 6px; height: 6px; display: inline-block;"></span>
+                <span>Live Feed</span>
+              </span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span id="activityFeedStatus" style="font-size: 0.76rem; color: var(--ks-text-muted);">Auto-refreshing (6s)</span>
+              <button type="button" id="refreshActivityBtn" class="ks-button ks-button-secondary" style="min-height: 28px; padding: 0 10px; font-size: 0.78rem;" title="Refresh activity stream">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Activity List Feed Container -->
+          <div id="liveActivityList" style="display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; padding-right: 4px;">
+            <div style="text-align: center; padding: 32px 14px; color: var(--ks-text-muted); font-size: 0.85rem; border: 1px dashed var(--ks-rule); border-radius: var(--ks-radius-xs); background: var(--ks-lacquer-deep);">
+              <div style="color: var(--ks-champagne); margin-bottom: 6px;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+              </div>
+              <div style="font-weight: 500; color: var(--ks-text-primary);">No bot activities recorded in this session yet.</div>
+              <div style="font-size: 0.76rem; color: var(--ks-text-faint); margin-top: 4px;">Commands, automod actions, stream alerts, and timers will stream here in real time.</div>
+            </div>
+          </div>
+        </section>
 
         <!-- Starter Pack & Quick Features Guide -->
         <section class="ks-card">
@@ -716,19 +864,48 @@ export function renderDashboardView({
       </div>
 
       <!-- 1. CUSTOM COMMANDS TAB -->
-      <div id="tab-commands" class="ks-tab-content ${activeTab === 'commands' ? 'active' : ''}">
+      <div id="tab-commands" class="ks-tab-content ${activeTab === 'commands' ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-btn-commands" tabindex="0">
         <section class="ks-card">
           <div class="ks-card-header">
             <div>
               <h2 class="ks-card-title">Channel Commands</h2>
               <p class="ks-card-desc">Commands respond instantly in stream chat using prefix <code>${currentPrefix}</code>.</p>
             </div>
-            <button type="button" id="openAddCommandBtn" class="ks-button ks-button-primary">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-                <path d="M8 2v12M2 8h12"/>
-              </svg>
-              <span>Add Command</span>
-            </button>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <a 
+                href="/api/commands/export?channelId=${channel.id}" 
+                class="ks-button ks-button-secondary" 
+                style="min-height: 32px; padding: 0 12px; font-size: 0.8rem;" 
+                title="Download all custom commands as a JSON backup file"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Export JSON</span>
+              </a>
+              <button 
+                type="button" 
+                id="openImportCommandsBtn" 
+                class="ks-button ks-button-secondary" 
+                style="min-height: 32px; padding: 0 12px; font-size: 0.8rem;" 
+                title="Import commands from JSON file or pasted text"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <span>Import JSON</span>
+              </button>
+              <button type="button" id="openAddCommandBtn" class="ks-button ks-button-primary">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                  <path d="M8 2v12M2 8h12"/>
+                </svg>
+                <span>Add Command</span>
+              </button>
+            </div>
           </div>
 
           <div class="ks-table-wrap">
@@ -746,7 +923,16 @@ export function renderDashboardView({
               <tbody>
                 ${(channel.commands && channel.commands.length > 0) ? channel.commands.map((cmd) => `
                   <tr>
-                    <td><span class="ks-tag ks-tag-gold">${currentPrefix}${cmd.trigger}</span></td>
+                    <td>
+                      <span class="ks-tag ks-tag-gold">${currentPrefix}${escapeAttr(cmd.trigger)}</span>
+                      ${cmd.aliases ? `
+                        <div style="margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap;">
+                          ${cmd.aliases.split(',').map((a) => a.trim()).filter(Boolean).map((a) => `
+                            <span class="ks-tag" style="font-size: 0.72rem; padding: 1px 5px; opacity: 0.85;" title="Alias for ${currentPrefix}${escapeAttr(cmd.trigger)}">${currentPrefix}${escapeAttr(a)}</span>
+                          `).join('')}
+                        </div>
+                      ` : ''}
+                    </td>
                     <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.88rem;">
                       ${cmd.response}
                     </td>
@@ -763,6 +949,7 @@ export function renderDashboardView({
                         data-cmd-response="${escapeAttr(cmd.response)}"
                         data-cmd-userlevel="${escapeAttr(cmd.userlevel)}"
                         data-cmd-cooldown="${cmd.cooldown || 5}"
+                        data-cmd-aliases="${escapeAttr(cmd.aliases || '')}"
                         title="Edit ${currentPrefix}${cmd.trigger}"
                       >
                         Edit
@@ -808,10 +995,14 @@ export function renderDashboardView({
             <input type="hidden" name="channelId" value="${channel.id}" />
             <input type="hidden" id="cmd-id" name="commandId" value="" />
 
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
               <div class="ks-form-group">
                 <label class="ks-label" for="cmd-trigger">Command Trigger (without prefix: ${currentPrefix})</label>
                 <input type="text" id="cmd-trigger" name="trigger" class="ks-input-text" placeholder="discord, specs, socials" required pattern="[a-zA-Z0-9_]+" />
+              </div>
+              <div class="ks-form-group">
+                <label class="ks-label" for="cmd-aliases">Aliases (optional, comma-separated)</label>
+                <input type="text" id="cmd-aliases" name="aliases" class="ks-input-text" placeholder="e.g. dc, disc, chatcord" />
               </div>
               <div class="ks-form-group">
                 <label class="ks-label" for="cmd-userlevel">Permission Level</label>
@@ -860,10 +1051,96 @@ export function renderDashboardView({
             </div>
           </form>
         </section>
+
+        <!-- Import Commands Modal -->
+        <div 
+          id="importCommandsModal" 
+          class="ks-modal-backdrop" 
+          role="dialog" 
+          aria-modal="true" 
+          aria-labelledby="importModalTitle" 
+          aria-describedby="importModalDesc" 
+          style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.78); backdrop-filter: blur(4px); z-index: 9999; align-items: center; justify-content: center; padding: 16px;"
+        >
+          <div class="ks-card" style="max-width: 540px; width: 100%; border-color: var(--ks-gold-hairline); box-shadow: 0 20px 40px rgba(0,0,0,0.8); background: var(--ks-raised-lacquer); padding: 24px;">
+            
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="width: 36px; height: 36px; border-radius: var(--ks-radius-xs); background: var(--ks-lacquer-deep); border: 1px solid var(--ks-gold-hairline); display: flex; align-items: center; justify-content: center; color: var(--ks-kinpaku);">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                </div>
+                <div>
+                  <h3 id="importModalTitle" style="font-size: 1.15rem; font-weight: 700; color: var(--ks-champagne); margin: 0;">Import Custom Commands</h3>
+                  <div id="importModalDesc" style="font-size: 0.78rem; color: var(--ks-text-muted);">Restore commands from a JSON backup file or pasted text</div>
+                </div>
+              </div>
+              
+              <button type="button" id="closeImportModalBtn" aria-label="Close import dialog" style="background: none; border: none; color: var(--ks-text-muted); cursor: pointer; padding: 4px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <form action="/api/commands/import" method="POST" id="importCommandsForm">
+              <input type="hidden" name="channelId" value="${channel.id}" />
+
+              <div class="ks-form-group" style="margin-bottom: 14px;">
+                <label class="ks-label" for="importJsonFile">Choose JSON File to Upload</label>
+                <input type="file" id="importJsonFile" accept=".json,application/json" class="ks-input-text" style="padding: 6px 10px; font-size: 0.85rem;" />
+              </div>
+
+              <div class="ks-form-group" style="margin-bottom: 14px;">
+                <label class="ks-label" for="importJsonContent">Or Paste JSON Data Directly</label>
+                <textarea 
+                  id="importJsonContent" 
+                  name="commandsJson" 
+                  class="ks-textarea" 
+                  rows="5" 
+                  placeholder='[&#10;  { "trigger": "discord", "response": "Join us at https://...", "aliases": "dc" }&#10;]' 
+                  style="font-family: var(--ks-mono); font-size: 0.82rem;"
+                ></textarea>
+              </div>
+
+              <div class="ks-form-group" style="margin-bottom: 20px;">
+                <label class="ks-label">Import Mode</label>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.86rem; color: var(--ks-text-primary);">
+                    <input type="radio" name="mode" value="merge" checked style="margin-top: 2px; accent-color: var(--ks-kinpaku);" />
+                    <div>
+                      <strong>Merge (Recommended)</strong>
+                      <div style="font-size: 0.78rem; color: var(--ks-text-muted);">Updates matching command triggers and inserts new commands without deleting other existing commands.</div>
+                    </div>
+                  </label>
+                  <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.86rem; color: var(--ks-text-primary);">
+                    <input type="radio" name="mode" value="replace" style="margin-top: 2px; accent-color: var(--ks-kinpaku);" />
+                    <div>
+                      <strong style="color: var(--ks-vermilion);">Replace (Overwrite All)</strong>
+                      <div style="font-size: 0.78rem; color: var(--ks-text-muted);">Erases all current custom commands for this channel and replaces them completely with the imported dataset.</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px;">
+                <button type="button" id="cancelImportBtn" class="ks-button ks-button-secondary">
+                  Cancel
+                </button>
+                <button type="submit" class="ks-button ks-button-primary">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                  <span>Execute Import</span>
+                </button>
+              </div>
+            </form>
+
+          </div>
+        </div>
       </div>
 
       <!-- 2. BUILT-IN COMMANDS TAB -->
-      <div id="tab-builtins" class="ks-tab-content ${activeTab === 'builtins' ? 'active' : ''}">
+      <div id="tab-builtins" class="ks-tab-content ${activeTab === 'builtins' ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-btn-builtins" tabindex="0">
         <section class="ks-card">
           <div class="ks-card-header">
             <div>
@@ -926,6 +1203,7 @@ export function renderDashboardView({
                               type="checkbox" 
                               name="enabled" 
                               value="true" 
+                              aria-label="${isDisabled ? 'Enable' : 'Disable'} built-in command ${currentPrefix}${b.trigger}"
                               ${!isDisabled ? 'checked' : ''} 
                               onchange="this.form.submit()"
                             >
@@ -943,7 +1221,7 @@ export function renderDashboardView({
       </div>
 
       <!-- 2b. CHAT TIMERS TAB -->
-      <div id="tab-timers" class="ks-tab-content ${activeTab === 'timers' ? 'active' : ''}">
+      <div id="tab-timers" class="ks-tab-content ${activeTab === 'timers' ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-btn-timers" tabindex="0">
         <section class="ks-card">
           <div class="ks-card-header">
             <div>
@@ -1028,7 +1306,7 @@ export function renderDashboardView({
                   <tr>
                     <td colspan="6" style="text-align: center; color: var(--ks-text-muted); padding: 36px 14px;">
                       <div style="max-width: 440px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; gap: 8px;">
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--ks-gold)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.85; margin-bottom: 4px;">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--ks-kinpaku)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.85; margin-bottom: 4px;">
                           <circle cx="12" cy="12" r="10"></circle>
                           <polyline points="12 6 12 12 16 14"></polyline>
                         </svg>
@@ -1135,7 +1413,7 @@ export function renderDashboardView({
       </div>
 
       <!-- 2c. RAIDS TAB -->
-      <div id="tab-raids" class="ks-tab-content ${activeTab === 'raids' ? 'active' : ''}">
+      <div id="tab-raids" class="ks-tab-content ${activeTab === 'raids' ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-btn-raids" tabindex="0">
         <section class="ks-card">
           <div class="ks-card-header">
             <div>
@@ -1158,7 +1436,7 @@ export function renderDashboardView({
                 <div style="font-size: 0.8rem; color: var(--ks-text-muted); margin-top: 2px;">When active, incoming raids trigger an automated announcement in stream chat.</div>
               </div>
               <label class="ks-toggle" title="Toggle Raid Greetings">
-                <input type="checkbox" name="enabled" value="true" ${raidSettings.enabled ? 'checked' : ''}>
+                <input type="checkbox" name="enabled" value="true" aria-label="Enable Automated Raid Welcomes" ${raidSettings.enabled ? 'checked' : ''}>
                 <span class="ks-toggle-track"><span class="ks-toggle-knob"></span></span>
               </label>
             </div>
@@ -1174,7 +1452,7 @@ export function renderDashboardView({
                   value="${raidSettings.minViewers}" 
                   min="0" 
                   max="10000" 
-                  required
+                  required 
                 />
                 <div style="font-size: 0.76rem; color: var(--ks-text-muted); margin-top: 4px;">
                   Only greet raids with at least this many viewers (set to 0 for all raids).
@@ -1191,7 +1469,7 @@ export function renderDashboardView({
                   value="${raidSettings.cooldownMinutes}" 
                   min="0" 
                   max="1440" 
-                  required
+                  required 
                 />
                 <div style="font-size: 0.76rem; color: var(--ks-text-muted); margin-top: 4px;">
                   Prevents duplicate announcements if the same channel re-raids shortly.
@@ -1204,11 +1482,11 @@ export function renderDashboardView({
                 <label class="ks-label" for="raid-message" style="margin-bottom: 0;">Raid Welcome Message Template</label>
                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                   <span style="font-size: 0.76rem; color: var(--ks-text-muted);">Variables:</span>
-                  <span class="ks-tag" style="font-size: 0.7rem; padding: 1px 6px; cursor: pointer;" title="Click to insert" onclick="insertRaidTag('{raider}')">{raider}</span>
-                  <span class="ks-tag" style="font-size: 0.7rem; padding: 1px 6px; cursor: pointer;" title="Click to insert" onclick="insertRaidTag('{viewers}')">{viewers}</span>
-                  <span class="ks-tag" style="font-size: 0.7rem; padding: 1px 6px; cursor: pointer;" title="Click to insert" onclick="insertRaidTag('{game}')">{game}</span>
-                  <span class="ks-tag" style="font-size: 0.7rem; padding: 1px 6px; cursor: pointer;" title="Click to insert" onclick="insertRaidTag('{url}')">{url}</span>
-                  <span class="ks-tag" style="font-size: 0.7rem; padding: 1px 6px; cursor: pointer;" title="Click to insert" onclick="insertRaidTag('{channel}')">{channel}</span>
+                  <button type="button" class="ks-var-pill" data-target-input="raid-message" data-insert="{raider}" title="Click to insert {raider}">{raider}</button>
+                  <button type="button" class="ks-var-pill" data-target-input="raid-message" data-insert="{viewers}" title="Click to insert {viewers}">{viewers}</button>
+                  <button type="button" class="ks-var-pill" data-target-input="raid-message" data-insert="{game}" title="Click to insert {game}">{game}</button>
+                  <button type="button" class="ks-var-pill" data-target-input="raid-message" data-insert="{url}" title="Click to insert {url}">{url}</button>
+                  <button type="button" class="ks-var-pill" data-target-input="raid-message" data-insert="{channel}" title="Click to insert {channel}">{channel}</button>
                 </div>
               </div>
               <textarea 
@@ -1262,7 +1540,7 @@ export function renderDashboardView({
       </div>
 
       <!-- 2d. SHOUTOUTS TAB -->
-      <div id="tab-shoutouts" class="ks-tab-content ${activeTab === 'shoutouts' ? 'active' : ''}">
+      <div id="tab-shoutouts" class="ks-tab-content ${activeTab === 'shoutouts' ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-btn-shoutouts" tabindex="0">
         <section class="ks-card">
           <div class="ks-card-header">
             <div>
@@ -1285,7 +1563,7 @@ export function renderDashboardView({
                 <div style="font-size: 0.8rem; color: var(--ks-text-muted); margin-top: 2px;">Enables the <code>${currentPrefix}so</code> command and automated raid shoutouts.</div>
               </div>
               <label class="ks-toggle" title="Toggle Shoutout System">
-                <input type="checkbox" name="enabled" value="true" ${shoutoutSettings.enabled ? 'checked' : ''}>
+                <input type="checkbox" name="enabled" value="true" aria-label="Enable Shoutout System" ${shoutoutSettings.enabled ? 'checked' : ''}>
                 <span class="ks-toggle-track"><span class="ks-toggle-knob"></span></span>
               </label>
             </div>
@@ -1295,11 +1573,11 @@ export function renderDashboardView({
                 <label class="ks-label" for="shoutout-message" style="margin-bottom: 0;">Shoutout Message Template</label>
                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                   <span style="font-size: 0.76rem; color: var(--ks-text-muted);">Variables:</span>
-                  <span class="ks-tag" style="font-size: 0.7rem; padding: 1px 6px; cursor: pointer;" title="Click to insert" onclick="insertShoutoutTag('{target}')">{target}</span>
-                  <span class="ks-tag" style="font-size: 0.7rem; padding: 1px 6px; cursor: pointer;" title="Click to insert" onclick="insertShoutoutTag('{game}')">{game}</span>
-                  <span class="ks-tag" style="font-size: 0.7rem; padding: 1px 6px; cursor: pointer;" title="Click to insert" onclick="insertShoutoutTag('{url}')">{url}</span>
-                  <span class="ks-tag" style="font-size: 0.7rem; padding: 1px 6px; cursor: pointer;" title="Click to insert" onclick="insertShoutoutTag('{channel}')">{channel}</span>
-                  <span class="ks-tag" style="font-size: 0.7rem; padding: 1px 6px; cursor: pointer;" title="Click to insert" onclick="insertShoutoutTag('{user}')">{user}</span>
+                  <button type="button" class="ks-var-pill" data-target-input="shoutout-message" data-insert="{target}" title="Click to insert {target}">{target}</button>
+                  <button type="button" class="ks-var-pill" data-target-input="shoutout-message" data-insert="{game}" title="Click to insert {game}">{game}</button>
+                  <button type="button" class="ks-var-pill" data-target-input="shoutout-message" data-insert="{url}" title="Click to insert {url}">{url}</button>
+                  <button type="button" class="ks-var-pill" data-target-input="shoutout-message" data-insert="{channel}" title="Click to insert {channel}">{channel}</button>
+                  <button type="button" class="ks-var-pill" data-target-input="shoutout-message" data-insert="{user}" title="Click to insert {user}">{user}</button>
                 </div>
               </div>
               <textarea 
@@ -1321,7 +1599,7 @@ export function renderDashboardView({
                     name="autoOnRaid" 
                     value="true" 
                     ${shoutoutSettings.autoOnRaid ? 'checked' : ''} 
-                    style="margin-top: 3px; accent-color: var(--ks-gold);"
+                    style="margin-top: 3px; accent-color: var(--ks-kinpaku);"
                   >
                   <div>
                     <div style="font-weight: 600; font-size: 0.9rem; color: var(--ks-text-primary);">
@@ -1341,7 +1619,7 @@ export function renderDashboardView({
                     name="sendTwitchShoutout" 
                     value="true" 
                     ${shoutoutSettings.sendTwitchShoutout ? 'checked' : ''} 
-                    style="margin-top: 3px; accent-color: var(--ks-gold);"
+                    style="margin-top: 3px; accent-color: var(--ks-kinpaku);"
                   >
                   <div>
                     <div style="font-weight: 600; font-size: 0.9rem; color: var(--ks-text-primary);">
@@ -1452,8 +1730,10 @@ export function renderDashboardView({
               <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--ks-text-muted); font-size: 0.95rem; font-weight: 600;">@</span>
               <input 
                 type="text" 
+                id="autoShoutoutInput"
                 name="targetLogin" 
                 class="ks-input-text" 
+                aria-label="Twitch username to add for auto-shoutouts"
                 placeholder="Twitch username (e.g. streamer)" 
                 required 
                 style="padding-left: 28px; width: 100%;" 
@@ -1501,7 +1781,7 @@ export function renderDashboardView({
                           <img 
                             src="${item.targetAvatar || DEFAULT_AVATAR_URL}" 
                             alt="${escapeAttr(item.targetDisplayName || item.targetLogin)}" 
-                            style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover; border: 1px solid var(--ks-gold-hairline); background: var(--ks-obsidian-deep);"
+                            style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover; border: 1px solid var(--ks-gold-hairline); background: var(--ks-lacquer-deep);"
                             onerror="this.onerror=null;this.src='${DEFAULT_AVATAR_URL}'"
                           />
                           <div>
@@ -1523,6 +1803,7 @@ export function renderDashboardView({
                             type="submit" 
                             class="ks-tag ${item.enabled ? 'ks-tag-gold' : ''}" 
                             style="cursor: pointer; border: 1px solid ${item.enabled ? 'var(--ks-champagne)' : 'var(--ks-rule)'}; background: ${item.enabled ? 'var(--ks-gold-soft)' : 'transparent'};"
+                            aria-label="Toggle auto-shoutout for @${escapeAttr(item.targetLogin)}"
                             title="Click to toggle active state"
                           >
                             ${item.enabled ? 'Active' : 'Paused'}
@@ -1566,7 +1847,7 @@ export function renderDashboardView({
       </div>
 
       <!-- 3. COMMAND PREFIX TAB -->
-      <div id="tab-prefix" class="ks-tab-content ${activeTab === 'prefix' ? 'active' : ''}">
+      <div id="tab-prefix" class="ks-tab-content ${activeTab === 'prefix' ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-btn-prefix" tabindex="0">
         <section class="ks-card">
           <div class="ks-card-header">
             <div>
@@ -1607,7 +1888,7 @@ export function renderDashboardView({
       </div>
 
       <!-- 3. AUTO-MODERATION TAB -->
-      <div id="tab-moderation" class="ks-tab-content ${activeTab === 'moderation' ? 'active' : ''}">
+      <div id="tab-moderation" class="ks-tab-content ${activeTab === 'moderation' ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-btn-moderation" tabindex="0">
         <section class="ks-card">
           <div class="ks-card-header">
             <div>
@@ -1627,7 +1908,7 @@ export function renderDashboardView({
                   </div>
                 </div>
                 <label class="ks-toggle" title="Toggle link filter">
-                  <input type="checkbox" name="filterLinks" ${channel.moderation?.filterLinks ? 'checked' : ''}>
+                  <input type="checkbox" name="filterLinks" aria-label="Block Unpermitted Links" ${channel.moderation?.filterLinks ? 'checked' : ''}>
                   <span class="ks-toggle-track"><span class="ks-toggle-knob"></span></span>
                 </label>
               </div>
@@ -1640,7 +1921,59 @@ export function renderDashboardView({
                   </div>
                 </div>
                 <label class="ks-toggle" title="Toggle caps filter">
-                  <input type="checkbox" name="filterCaps" ${channel.moderation?.filterCaps ? 'checked' : ''}>
+                  <input type="checkbox" name="filterCaps" aria-label="Block Excessive Caps" ${channel.moderation?.filterCaps ? 'checked' : ''}>
+                  <span class="ks-toggle-track"><span class="ks-toggle-knob"></span></span>
+                </label>
+              </div>
+
+              <div class="ks-toggle-row" style="display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-bottom: 1px solid var(--ks-rule);">
+                <div style="max-width: 600px;">
+                  <div style="font-weight: 600; color: var(--ks-champagne);">Emote &amp; Unicode Limit Filter</div>
+                  <div style="color: var(--ks-text-muted); font-size: 0.85rem; margin-top: 2px;">
+                    Deletes chat messages exceeding a maximum threshold of native Twitch emotes and Unicode emojis.
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                    <label for="max-emotes" class="ks-label" style="margin-bottom: 0; font-size: 0.78rem;">Max Allowed Emotes:</label>
+                    <input 
+                      type="number" 
+                      id="max-emotes" 
+                      name="maxEmotes" 
+                      class="ks-input-text" 
+                      value="${channel.moderation?.maxEmotes ?? 8}" 
+                      min="1" 
+                      max="100" 
+                      style="max-width: 90px; min-height: 30px; padding: 4px 8px; font-family: var(--ks-mono); font-size: 0.85rem;" 
+                    />
+                  </div>
+                </div>
+                <label class="ks-toggle" title="Toggle emote limit filter">
+                  <input type="checkbox" name="filterEmotes" aria-label="Emote and Unicode Limit Filter" ${channel.moderation?.filterEmotes ? 'checked' : ''}>
+                  <span class="ks-toggle-track"><span class="ks-toggle-knob"></span></span>
+                </label>
+              </div>
+
+              <div class="ks-toggle-row" style="display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-bottom: 1px solid var(--ks-rule);">
+                <div style="max-width: 600px;">
+                  <div style="font-weight: 600; color: var(--ks-champagne);">Repeated Text &amp; Word Spam Filter</div>
+                  <div style="color: var(--ks-text-muted); font-size: 0.85rem; margin-top: 2px;">
+                    Detects and removes copy-paste spam where phrases or words are repeated in a single chat message.
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                    <label for="max-repetition" class="ks-label" style="margin-bottom: 0; font-size: 0.78rem;">Max Word Repetitions:</label>
+                    <input 
+                      type="number" 
+                      id="max-repetition" 
+                      name="maxRepetition" 
+                      class="ks-input-text" 
+                      value="${channel.moderation?.maxRepetition ?? 3}" 
+                      min="2" 
+                      max="20" 
+                      style="max-width: 90px; min-height: 30px; padding: 4px 8px; font-family: var(--ks-mono); font-size: 0.85rem;" 
+                    />
+                  </div>
+                </div>
+                <label class="ks-toggle" title="Toggle repetition filter">
+                  <input type="checkbox" name="filterRepetition" aria-label="Repeated Text and Word Spam Filter" ${channel.moderation?.filterRepetition ? 'checked' : ''}>
                   <span class="ks-toggle-track"><span class="ks-toggle-knob"></span></span>
                 </label>
               </div>
@@ -1674,7 +2007,7 @@ export function renderDashboardView({
       </div>
 
       <!-- 4. MANAGERS & PERMISSIONS TAB -->
-      <div id="tab-managers" class="ks-tab-content ${activeTab === 'managers' ? 'active' : ''}">
+      <div id="tab-managers" class="ks-tab-content ${activeTab === 'managers' ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-btn-managers" tabindex="0">
         <section class="ks-card">
           <div class="ks-card-header">
             <div>
@@ -1695,8 +2028,10 @@ export function renderDashboardView({
               <input type="hidden" name="channelId" value="${channel.id}">
               <input 
                 type="text" 
+                id="managerUsernameInput"
                 name="username" 
                 class="ks-input-text" 
+                aria-label="Twitch username for new channel manager"
                 placeholder="Twitch username (e.g. headmod)" 
                 required 
                 style="max-width: 320px;" 
@@ -1785,7 +2120,7 @@ export function renderDashboardView({
       </div>
 
       <!-- 5. LIVE TEST MESSAGE TAB -->
-      <div id="tab-test" class="ks-tab-content ${activeTab === 'test' ? 'active' : ''}">
+      <div id="tab-test" class="ks-tab-content ${activeTab === 'test' ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-btn-test" tabindex="0">
         <section class="ks-card">
           <div class="ks-card-header">
             <div>
@@ -1818,7 +2153,7 @@ export function renderDashboardView({
       </div>
 
       <!-- 6. STREAM ALERTS TAB -->
-      <div id="tab-alerts" class="ks-tab-content ${activeTab === 'alerts' ? 'active' : ''}">
+      <div id="tab-alerts" class="ks-tab-content ${activeTab === 'alerts' ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-btn-alerts" tabindex="0">
         <section class="ks-card" style="margin-bottom: 24px;">
           <div class="ks-card-header">
             <div>
@@ -1849,7 +2184,7 @@ export function renderDashboardView({
 
                 <div style="display: flex; align-items: center; gap: 12px;">
                   <label class="ks-switch">
-                    <input type="checkbox" name="followEnabled" ${streamAlerts.followEnabled ? 'checked' : ''}>
+                    <input type="checkbox" name="followEnabled" aria-label="Enable Follower Chat Alerts" ${streamAlerts.followEnabled ? 'checked' : ''}>
                     <span class="ks-slider"></span>
                   </label>
                 </div>
@@ -1909,7 +2244,7 @@ export function renderDashboardView({
 
                 <div style="display: flex; align-items: center; gap: 12px;">
                   <label class="ks-switch">
-                    <input type="checkbox" name="subEnabled" ${streamAlerts.subEnabled ? 'checked' : ''}>
+                    <input type="checkbox" name="subEnabled" aria-label="Enable Subscriber & Gift Chat Alerts" ${streamAlerts.subEnabled ? 'checked' : ''}>
                     <span class="ks-slider"></span>
                   </label>
                 </div>
@@ -2018,7 +2353,7 @@ export function renderDashboardView({
       </div>
 
       <!-- 7. CHANNEL POINT REWARDS TAB -->
-      <div id="tab-rewards" class="ks-tab-content ${activeTab === 'rewards' ? 'active' : ''}">
+      <div id="tab-rewards" class="ks-tab-content ${activeTab === 'rewards' ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-btn-rewards" tabindex="0">
         <section class="ks-card" style="margin-bottom: 24px;">
           <div class="ks-card-header" style="margin-bottom: 0;">
             <div>
@@ -2186,7 +2521,7 @@ export function renderDashboardView({
                           <input type="hidden" name="channelId" value="${channel.id}">
                           <input type="hidden" name="id" value="${trig.id}">
                           <label class="ks-switch" style="vertical-align: middle;">
-                            <input type="checkbox" name="enabled" ${trig.enabled ? 'checked' : ''} onchange="this.form.submit()">
+                            <input type="checkbox" name="enabled" aria-label="Toggle ${escapeAttr(trig.rewardTitle)} reward trigger" ${trig.enabled ? 'checked' : ''} onchange="this.form.submit()">
                             <span class="ks-slider"></span>
                           </label>
                         </form>
@@ -2261,8 +2596,68 @@ export function renderDashboardView({
           textarea.setSelectionRange(newPos, newPos);
         };
 
+        // --- Toast Lifecycle Management ---
+        function dismissToast(toast) {
+          if (!toast || toast.classList.contains('is-leaving')) return;
+          toast.classList.add('is-leaving');
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateY(8px) scale(0.96)';
+          setTimeout(function() {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+          }, 240);
+        }
+
+        function dismissAllToasts() {
+          var container = document.getElementById('ks-toast-container');
+          if (!container) return;
+          var toasts = container.querySelectorAll('.ks-toast');
+          toasts.forEach(function(toast) {
+            dismissToast(toast);
+          });
+        }
+
+        function setupToast(toast, duration) {
+          if (!toast) return;
+          var timer = null;
+          var remaining = duration || 4500;
+          var startTime = Date.now();
+
+          function startTimer() {
+            startTime = Date.now();
+            timer = setTimeout(function() {
+              dismissToast(toast);
+            }, remaining);
+          }
+
+          function pauseTimer() {
+            if (timer) {
+              clearTimeout(timer);
+              timer = null;
+              var elapsed = Date.now() - startTime;
+              remaining = Math.max(1500, remaining - elapsed);
+            }
+          }
+
+          startTimer();
+
+          toast.addEventListener('mouseenter', pauseTimer);
+          toast.addEventListener('mouseleave', startTimer);
+
+          var closeBtn = toast.querySelector('.ks-toast-close');
+          if (closeBtn) {
+            closeBtn.addEventListener('click', function(e) {
+              e.stopPropagation();
+              if (timer) clearTimeout(timer);
+              dismissToast(toast);
+            });
+          }
+        }
+
         function switchTab(tabId) {
           if (!tabId) return;
+          // Disappear any notifications immediately on tab change
+          dismissAllToasts();
+
           // Set cookie so full page refreshes / POST redirects stay on this tab
           document.cookie = 'active_dashboard_tab=' + encodeURIComponent(tabId) + '; path=/; max-age=2592000; SameSite=Lax';
           try {
@@ -2273,7 +2668,9 @@ export function renderDashboardView({
           var contents = document.querySelectorAll('.ks-tab-content');
           
           buttons.forEach(function(btn) {
-            if (btn.getAttribute('data-tab') === tabId) {
+            var isTarget = btn.getAttribute('data-tab') === tabId;
+            btn.setAttribute('aria-selected', isTarget ? 'true' : 'false');
+            if (isTarget) {
               btn.classList.add('active');
               var group = btn.closest('.ks-sidebar-group');
               if (group) {
@@ -2325,6 +2722,10 @@ export function renderDashboardView({
           // Zero URL pollution: strip any ?tab= query from browser address bar
           if (window.location.search && window.history && window.history.replaceState) {
             window.history.replaceState({}, '', window.location.pathname);
+          }
+
+          if (tabId === 'overview' && typeof fetchActivityFeed === 'function') {
+            fetchActivityFeed();
           }
         }
 
@@ -2466,12 +2867,14 @@ export function renderDashboardView({
 
             var idInput = document.getElementById('cmd-id');
             var triggerInput = document.getElementById('cmd-trigger');
+            var aliasesInput = document.getElementById('cmd-aliases');
             var responseInput = document.getElementById('cmd-response');
             var userlevelSelect = document.getElementById('cmd-userlevel');
             var cooldownInput = document.getElementById('cmd-cooldown');
 
             if (idInput) idInput.value = '';
             if (triggerInput) triggerInput.value = '';
+            if (aliasesInput) aliasesInput.value = '';
             if (responseInput) responseInput.value = '';
             if (userlevelSelect) userlevelSelect.value = 'everyone';
             if (cooldownInput) cooldownInput.value = '5';
@@ -2490,6 +2893,7 @@ export function renderDashboardView({
             var card = document.getElementById('addCommandCard');
             var id = editBtn.getAttribute('data-cmd-id');
             var trigger = editBtn.getAttribute('data-cmd-trigger');
+            var aliases = editBtn.getAttribute('data-cmd-aliases') || '';
             var response = editBtn.getAttribute('data-cmd-response');
             var userlevel = editBtn.getAttribute('data-cmd-userlevel') || 'everyone';
             var cooldown = editBtn.getAttribute('data-cmd-cooldown') || '5';
@@ -2499,17 +2903,19 @@ export function renderDashboardView({
             var submitLabel = document.getElementById('cmd-submit-label');
 
             if (title) title.textContent = 'Edit Command: ' + ${JSON.stringify(currentPrefix)} + trigger;
-            if (desc) desc.textContent = 'Modify trigger, automated response, permissions, or cooldown.';
+            if (desc) desc.textContent = 'Modify trigger, aliases, response, permissions, or cooldown.';
             if (submitLabel) submitLabel.textContent = 'Update Command';
 
             var idInput = document.getElementById('cmd-id');
             var triggerInput = document.getElementById('cmd-trigger');
+            var aliasesInput = document.getElementById('cmd-aliases');
             var responseInput = document.getElementById('cmd-response');
             var userlevelSelect = document.getElementById('cmd-userlevel');
             var cooldownInput = document.getElementById('cmd-cooldown');
 
             if (idInput) idInput.value = id;
             if (triggerInput) triggerInput.value = trigger;
+            if (aliasesInput) aliasesInput.value = aliases;
             if (responseInput) responseInput.value = response;
             if (userlevelSelect) userlevelSelect.value = userlevel;
             if (cooldownInput) cooldownInput.value = cooldown;
@@ -2531,10 +2937,39 @@ export function renderDashboardView({
             }
             var idInput = document.getElementById('cmd-id');
             var triggerInput = document.getElementById('cmd-trigger');
+            var aliasesInput = document.getElementById('cmd-aliases');
             var responseInput = document.getElementById('cmd-response');
             if (idInput) idInput.value = '';
             if (triggerInput) triggerInput.value = '';
+            if (aliasesInput) aliasesInput.value = '';
             if (responseInput) responseInput.value = '';
+            return;
+          }
+
+          var openImportBtn = e.target.closest('#openImportCommandsBtn');
+          if (openImportBtn) {
+            e.preventDefault();
+            var modal = document.getElementById('importCommandsModal');
+            if (modal) {
+              modal.style.display = 'flex';
+              var fileInput = document.getElementById('importJsonFile');
+              var textarea = document.getElementById('importJsonContent');
+              if (fileInput) fileInput.value = '';
+              if (textarea) textarea.value = '';
+            }
+            return;
+          }
+
+          var closeImportBtn = e.target.closest('#closeImportModalBtn') || e.target.closest('#cancelImportBtn');
+          if (closeImportBtn) {
+            e.preventDefault();
+            var modal = document.getElementById('importCommandsModal');
+            if (modal) modal.style.display = 'none';
+            return;
+          }
+
+          if (e.target && e.target.id === 'importCommandsModal') {
+            e.target.style.display = 'none';
             return;
           }
 
@@ -2703,6 +3138,253 @@ export function renderDashboardView({
             return;
           }
         });
+
+        // --- Floating Toast Notifications ---
+        function showToast(message, type) {
+          type = type || 'success';
+          var container = document.getElementById('ks-toast-container');
+          if (!container) {
+            container = document.createElement('div');
+            container.id = 'ks-toast-container';
+            container.className = 'ks-toast-container';
+            container.setAttribute('aria-live', 'polite');
+            container.setAttribute('aria-atomic', 'true');
+            document.body.appendChild(container);
+          }
+          var toast = document.createElement('div');
+          toast.className = 'ks-toast ' + (type === 'error' ? 'ks-toast-error' : 'ks-toast-success');
+          toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+          var iconSvg = type === 'error'
+            ? '<svg class="ks-toast-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>'
+            : '<svg class="ks-toast-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>';
+          
+          toast.innerHTML = '<div class="ks-toast-body">' +
+            iconSvg +
+            '<div class="ks-toast-text">' + (message || '') + '</div>' +
+            '</div>' +
+            '<button type="button" class="ks-toast-close" aria-label="Dismiss notification">' +
+            '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l10 10M12 2L2 12"/></svg>' +
+            '</button>';
+
+          container.appendChild(toast);
+          setupToast(toast, type === 'error' ? 6000 : 4500);
+        }
+
+        // Auto-dismiss any server-rendered initial toasts on page load
+        document.querySelectorAll('.ks-toast').forEach(function(toast) {
+          var isError = toast.classList.contains('ks-toast-error');
+          setupToast(toast, isError ? 6000 : 4500);
+        });
+
+        // --- Non-Blocking Asynchronous Test Dispatches ---
+        // Intercept test triggers (/api/alerts/test, /api/send-test, /api/redemptions/test, /api/shoutout/test)
+        // so streamers do not experience abrupt full-page reloads during live broadcasts
+        var testUrls = ['/api/alerts/test', '/api/send-test', '/api/redemptions/test', '/api/shoutout/test'];
+
+        document.addEventListener('submit', function(e) {
+          var form = e.target;
+          var submitter = e.submitter;
+          var targetAction = (submitter && submitter.getAttribute('formaction')) || form.getAttribute('action') || '';
+          
+          var isTest = testUrls.some(function(u) { return targetAction.indexOf(u) !== -1; });
+          if (!isTest) return;
+
+          e.preventDefault();
+
+          var formData = new FormData(form);
+          if (submitter && submitter.name && submitter.value) {
+            formData.set(submitter.name, submitter.value);
+          }
+          var searchParams = new URLSearchParams();
+          formData.forEach(function(val, key) {
+            searchParams.append(key, val);
+          });
+
+          var origBtnText = submitter ? submitter.innerHTML : '';
+          if (submitter) {
+            submitter.disabled = true;
+            submitter.style.opacity = '0.7';
+          }
+
+          fetch(targetAction, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Accept': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: searchParams.toString()
+          })
+          .then(function(res) {
+            return res.json().then(function(data) {
+              return { status: res.status, ok: res.ok, data: data };
+            }).catch(function() {
+              return { status: res.status, ok: res.ok, data: null };
+            });
+          })
+          .then(function(result) {
+            if (result.ok && result.data && result.data.message) {
+              showToast(result.data.message, 'success');
+            } else if (result.data && result.data.error) {
+              showToast(result.data.error, 'error');
+            } else if (result.ok) {
+              showToast('Test action dispatched successfully!', 'success');
+            } else {
+              showToast('Failed to dispatch test action.', 'error');
+            }
+          })
+          .catch(function(err) {
+            showToast('Network error dispatching test: ' + (err.message || 'Unknown error'), 'error');
+          })
+          .finally(function() {
+            if (submitter) {
+              submitter.disabled = false;
+              submitter.style.opacity = '';
+              submitter.innerHTML = origBtnText;
+            }
+          });
+        });
+
+        // --- Custom Commands JSON File Import Reader ---
+        var importFileInput = document.getElementById('importJsonFile');
+        if (importFileInput) {
+          importFileInput.addEventListener('change', function(e) {
+            var file = e.target.files && e.target.files[0];
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = function(evt) {
+              var content = evt.target.result;
+              var textarea = document.getElementById('importJsonContent');
+              if (textarea) textarea.value = content;
+            };
+            reader.readAsText(file);
+          });
+        }
+
+        // --- Live Activity Stream Polling & Rendering ---
+        function safeHtml(str) {
+          if (!str) return '';
+          return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        }
+
+        function formatTimeAgo(ts) {
+          if (!ts || ts === 0) return 'Just now';
+          var diff = Date.now() - ts;
+          if (diff < 0) return 'Just now';
+          var secs = Math.floor(diff / 1000);
+          if (secs < 30) return 'Just now';
+          if (secs < 60) return secs + 's ago';
+          var mins = Math.floor(secs / 60);
+          if (mins < 60) return mins + 'm ago';
+          var hrs = Math.floor(mins / 60);
+          if (hrs < 24) return hrs + 'h ago';
+          return Math.floor(hrs / 24) + 'd ago';
+        }
+
+        function renderActivities(activities) {
+          var container = document.getElementById('liveActivityList');
+          if (!container) return;
+
+          if (!activities || activities.length === 0) {
+            container.innerHTML = '<div style="text-align: center; padding: 32px 14px; color: var(--ks-text-muted); font-size: 0.85rem; border: 1px dashed var(--ks-rule); border-radius: var(--ks-radius-xs); background: var(--ks-lacquer-deep);">' +
+              '<div style="color: var(--ks-champagne); margin-bottom: 6px;">' +
+              '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+              '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>' +
+              '</svg>' +
+              '</div>' +
+              '<div style="font-weight: 500; color: var(--ks-text-primary);">No bot activities recorded in this session yet.</div>' +
+              '<div style="font-size: 0.76rem; color: var(--ks-text-faint); margin-top: 4px;">Commands, automod actions, stream alerts, and timers will stream here in real time.</div>' +
+              '</div>';
+            return;
+          }
+
+          var typeClassMap = {
+            command: 'ks-tag-gold',
+            moderation: 'ks-tag-vermilion',
+            alert: 'ks-tag-patina',
+            timer: '',
+            shoutout: 'ks-tag-gold',
+            redemption: 'ks-tag-patina'
+          };
+
+          var html = activities.map(function(act) {
+            var badgeClass = typeClassMap[act.type] || '';
+            var typeLabel = safeHtml(act.type || 'bot');
+            var title = safeHtml(act.title || 'Activity');
+            var detail = safeHtml(act.detail || '');
+            var timeStr = formatTimeAgo(act.timestamp);
+
+            return '<div class="ks-activity-item" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); border: 1px solid var(--ks-rule);">' +
+              '<div style="display: flex; align-items: center; gap: 10px; min-width: 0;">' +
+              '<span class="ks-tag ' + badgeClass + '" style="font-size: 0.7rem; padding: 1px 6px; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">' + typeLabel + '</span>' +
+              '<div style="min-width: 0;">' +
+              '<div style="font-size: 0.85rem; font-weight: 600; color: var(--ks-champagne); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + title + '</div>' +
+              (detail ? '<div style="font-size: 0.78rem; color: var(--ks-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + detail + '</div>' : '') +
+              '</div>' +
+              '</div>' +
+              '<div style="font-size: 0.74rem; color: var(--ks-text-faint); white-space: nowrap; font-family: var(--ks-mono);">' + timeStr + '</div>' +
+              '</div>';
+          }).join('');
+
+          container.innerHTML = html;
+        }
+
+        var isFetchingActivity = false;
+        function fetchActivityFeed() {
+          if (isFetchingActivity) return;
+          var container = document.getElementById('liveActivityList');
+          if (!container) return;
+          var statusEl = document.getElementById('activityFeedStatus');
+
+          isFetchingActivity = true;
+          fetch('/api/activity?channelId=' + encodeURIComponent(${JSON.stringify(channel.id)}) + '&limit=25', {
+            headers: { 'Accept': 'application/json' }
+          })
+          .then(function(res) { return res.json(); })
+          .then(function(data) {
+            if (data && data.ok && Array.isArray(data.activities)) {
+              renderActivities(data.activities);
+              if (statusEl) {
+                var now = new Date();
+                var timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                statusEl.textContent = 'Updated ' + timeStr;
+              }
+            }
+          })
+          .catch(function(err) {
+            if (statusEl) statusEl.textContent = 'Auto-refresh paused';
+          })
+          .finally(function() {
+            isFetchingActivity = false;
+          });
+        }
+
+        var refreshBtn = document.getElementById('refreshActivityBtn');
+        if (refreshBtn) {
+          refreshBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            fetchActivityFeed();
+          });
+        }
+
+        // Poll every 6s when overview tab is visible and page is active
+        setInterval(function() {
+          var overviewTab = document.getElementById('tab-overview');
+          if (overviewTab && overviewTab.classList.contains('active') && !document.hidden) {
+            fetchActivityFeed();
+          }
+        }, 6000);
+
+        // Initial fetch on page load if overview tab is active
+        var initOverviewTab = document.getElementById('tab-overview');
+        if (initOverviewTab && initOverviewTab.classList.contains('active')) {
+          fetchActivityFeed();
+        }
 
         // --- Scroll Position Preservation Across Updates & Page Refreshes ---
         document.addEventListener('submit', function() {

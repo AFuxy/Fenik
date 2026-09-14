@@ -38,6 +38,7 @@ import {
   upsertChannelPointTrigger,
   toggleChannelPointTrigger,
   deleteChannelPointTrigger,
+  getCommandsForChannel,
 } from '../db/index.js';
 import { subscribeChannel } from '../services/eventSub.js';
 import { sendChatMessage, getUserByLogin, addChannelModerator } from '../services/twitchApi.js';
@@ -45,6 +46,7 @@ import { formatRaidMessage } from '../services/raidService.js';
 import { formatShoutoutMessage } from '../services/shoutoutService.js';
 import { executeTestAlert } from '../services/alertService.js';
 import { executeTestRedemption } from '../services/redemptionService.js';
+import { getRecentActivities, recordActivity } from '../services/activityService.js';
 
 export const apiRouter = Router();
 
@@ -173,6 +175,7 @@ apiRouter.post(['/commands/save', '/commands/create', '/commands/update'], requi
   const response = String(req.body.response || '').trim();
   const userlevel = req.body.userlevel || 'everyone';
   const cooldown = Math.max(1, Math.min(300, parseInt(req.body.cooldown, 10) || 5));
+  const aliases = String(req.body.aliases || '').trim();
 
   if (!trigger || !response) {
     res.setFlash('error', 'Trigger and response are required');
@@ -199,6 +202,13 @@ apiRouter.post(['/commands/save', '/commands/create', '/commands/update'], requi
       response,
       userlevel,
       cooldown,
+      aliases,
+    });
+
+    recordActivity(channel.id, {
+      type: 'command',
+      title: 'Command Updated',
+      detail: `Updated command !${trigger}${aliases ? ` (aliases: ${aliases})` : ''}`,
     });
 
     res.setFlash('success', `Command "${trigger}" updated`);
@@ -216,7 +226,14 @@ apiRouter.post(['/commands/save', '/commands/create', '/commands/update'], requi
     response,
     userlevel,
     cooldown,
+    aliases,
     enabled: true,
+  });
+
+  recordActivity(channel.id, {
+    type: 'command',
+    title: 'Command Created',
+    detail: `Created new command !${trigger}${aliases ? ` (aliases: ${aliases})` : ''}`,
   });
 
   res.setFlash('success', `Command "${trigger}" created`);
@@ -229,9 +246,107 @@ apiRouter.post('/commands/delete', requireAuth, (req, res) => {
   if (!channel) return;
 
   const commandId = req.body.commandId;
+  const existing = getCommandById(channel.id, commandId);
   deleteCommand(channel.id, commandId);
 
+  if (existing) {
+    recordActivity(channel.id, {
+      type: 'command',
+      title: 'Command Deleted',
+      detail: `Deleted command !${existing.trigger}`,
+    });
+  }
+
   res.setFlash('success', 'Command deleted');
+  return redirectToTab(res, 'commands');
+});
+
+// 3a. Export Custom Commands (JSON Download)
+apiRouter.get('/commands/export', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const commands = channel.commands || getCommandsForChannel(channel.id);
+  const exportPayload = {
+    version: '1.0',
+    bot: config.botName,
+    channel: channel.login,
+    exportedAt: new Date().toISOString(),
+    commands: commands.map((c) => ({
+      trigger: c.trigger,
+      response: c.response,
+      userlevel: c.userlevel,
+      cooldown: c.cooldown,
+      aliases: c.aliases || '',
+      enabled: c.enabled,
+    })),
+  };
+
+  const filename = `commands-${channel.login}-${new Date().toISOString().slice(0, 10)}.json`;
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Type', 'application/json');
+  return res.send(JSON.stringify(exportPayload, null, 2));
+});
+
+// 3a-2. Import Custom Commands (JSON Upload or Paste)
+apiRouter.post('/commands/import', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const mode = String(req.body.mode || 'merge').trim().toLowerCase(); // 'merge' or 'replace'
+  const rawJson = String(req.body.commandsJson || req.body.jsonContent || '').trim();
+
+  if (!rawJson) {
+    res.setFlash('error', 'Please provide or upload valid JSON command data.');
+    return redirectToTab(res, 'commands');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch (err) {
+    res.setFlash('error', `Invalid JSON syntax: ${err.message}`);
+    return redirectToTab(res, 'commands');
+  }
+
+  const list = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.commands) ? parsed.commands : null);
+  if (!list || list.length === 0) {
+    res.setFlash('error', 'No commands array found in the uploaded JSON file.');
+    return redirectToTab(res, 'commands');
+  }
+
+  // If replace mode, delete all existing custom commands first
+  if (mode === 'replace') {
+    const existing = channel.commands || getCommandsForChannel(channel.id);
+    for (const cmd of existing) {
+      deleteCommand(channel.id, cmd.id);
+    }
+  }
+
+  let importedCount = 0;
+  for (const item of list) {
+    const trigger = String(item.trigger || '').trim().toLowerCase().replace(/^!+/, '');
+    const response = String(item.response || '').trim();
+    if (!trigger || !response) continue;
+
+    upsertCommand(channel.id, {
+      trigger,
+      response,
+      userlevel: item.userlevel || 'everyone',
+      cooldown: parseInt(item.cooldown, 10) || 5,
+      aliases: item.aliases || '',
+      enabled: item.enabled !== false,
+    });
+    importedCount++;
+  }
+
+  recordActivity(channel.id, {
+    type: 'command',
+    title: 'Commands Imported',
+    detail: `Imported ${importedCount} command(s) (${mode} mode)`,
+  });
+
+  res.setFlash('success', `Successfully imported ${importedCount} command(s) (${mode === 'replace' ? 'replaced existing' : 'merged'}).`);
   return redirectToTab(res, 'commands');
 });
 
@@ -415,8 +530,13 @@ apiRouter.post('/shoutout/test', requireAuth, async (req, res) => {
   const channel = resolveTargetChannel(req, res);
   if (!channel) return;
 
+  const wantsJson = req.xhr || req.headers.accept?.includes('application/json');
+
   const bot = getBotAccount();
   if (!bot) {
+    if (wantsJson) {
+      return res.status(400).json({ ok: false, error: 'Central bot account is not linked yet.' });
+    }
     res.setFlash('error', 'Central bot account is not linked yet.');
     return redirectToTab(res, 'shoutouts');
   }
@@ -437,8 +557,14 @@ apiRouter.post('/shoutout/test', requireAuth, async (req, res) => {
       senderId: bot.userId,
       message: `[TEST SHOUTOUT] ${formatted}`,
     });
+    if (wantsJson) {
+      return res.json({ ok: true, message: `Simulated shoutout for @${target} dispatched to Twitch chat!` });
+    }
     res.setFlash('success', `Simulated shoutout for @${target} dispatched to Twitch chat!`);
   } catch (err) {
+    if (wantsJson) {
+      return res.status(400).json({ ok: false, error: `Could not send test shoutout: ${err.message}` });
+    }
     res.setFlash('error', `Could not send test shoutout: ${err.message}`);
   }
 
@@ -524,8 +650,13 @@ apiRouter.post('/moderation', requireAuth, (req, res) => {
   const channel = resolveTargetChannel(req, res);
   if (!channel) return;
 
-  const filterLinks = Boolean(req.body.filterLinks);
-  const filterCaps = Boolean(req.body.filterCaps);
+  const filterLinks = Boolean(req.body.filterLinks === 'true' || req.body.filterLinks === 'on' || req.body.filterLinks === true || req.body.filterLinks === '1');
+  const filterCaps = Boolean(req.body.filterCaps === 'true' || req.body.filterCaps === 'on' || req.body.filterCaps === true || req.body.filterCaps === '1');
+  const filterEmotes = Boolean(req.body.filterEmotes === 'true' || req.body.filterEmotes === 'on' || req.body.filterEmotes === true || req.body.filterEmotes === '1');
+  const maxEmotes = Math.max(1, Math.min(100, parseInt(req.body.maxEmotes, 10) || 10));
+  const filterRepetition = Boolean(req.body.filterRepetition === 'true' || req.body.filterRepetition === 'on' || req.body.filterRepetition === true || req.body.filterRepetition === '1');
+  const maxRepetition = Math.max(2, Math.min(20, parseInt(req.body.maxRepetition, 10) || 4));
+
   const rawBanned = String(req.body.bannedWords || '');
   const bannedWords = rawBanned
     .split(',')
@@ -535,11 +666,30 @@ apiRouter.post('/moderation', requireAuth, (req, res) => {
   updateModerationSettings(channel.id, {
     filterLinks,
     filterCaps,
+    filterEmotes,
+    maxEmotes,
+    filterRepetition,
+    maxRepetition,
     bannedWords,
   });
 
   res.setFlash('success', 'Moderation settings saved');
   return redirectToTab(res, 'moderation');
+});
+
+// 4b. Live Dashboard Activity Stream API
+apiRouter.get('/activity', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 20));
+  const activities = getRecentActivities(channel.id, limit);
+
+  return res.json({
+    ok: true,
+    channel: channel.login,
+    activities,
+  });
 });
 
 // 5. Add Manager
@@ -605,8 +755,13 @@ apiRouter.post('/send-test', requireAuth, async (req, res) => {
   const channel = resolveTargetChannel(req, res);
   if (!channel) return;
 
+  const wantsJson = req.xhr || req.headers.accept?.includes('application/json');
+
   const bot = getBotAccount();
   if (!bot) {
+    if (wantsJson) {
+      return res.status(400).json({ ok: false, error: 'Central bot account is not linked yet. Contact the host.' });
+    }
     res.setFlash('error', 'Central bot account is not linked yet. Contact the host.');
     return redirectToTab(res, 'test');
   }
@@ -619,9 +774,15 @@ apiRouter.post('/send-test', requireAuth, async (req, res) => {
       senderId: bot.userId,
       message,
     });
+    if (wantsJson) {
+      return res.json({ ok: true, message: 'Message sent to Twitch chat!' });
+    }
     res.setFlash('success', 'Message sent to Twitch chat!');
     return redirectToTab(res, 'test');
   } catch (err) {
+    if (wantsJson) {
+      return res.status(400).json({ ok: false, error: err.message });
+    }
     res.setFlash('error', err.message);
     return redirectToTab(res, 'test');
   }
@@ -701,6 +862,11 @@ apiRouter.post('/alerts/settings', requireAuth, (req, res) => {
     communityGiftMessage: req.body.communityGiftMessage,
   });
 
+  // Re-sync EventSub listeners for this channel
+  subscribeChannel(channel.id).catch((err) => {
+    console.warn('[EventSub] Sync error after alert settings update:', err.message);
+  });
+
   res.setFlash('success', 'Stream alert settings updated successfully.');
   return redirectToTab(res, 'alerts');
 });
@@ -710,13 +876,20 @@ apiRouter.post('/alerts/test', requireAuth, async (req, res) => {
   const channel = resolveTargetChannel(req, res);
   if (!channel) return;
 
+  const wantsJson = req.xhr || req.headers.accept?.includes('application/json');
   const type = String(req.body.type || 'follow').trim();
 
   try {
     const result = await executeTestAlert(channel.id, type);
+    if (wantsJson) {
+      return res.json({ ok: true, message: `Sent test alert to #${channel.login}: ${result.message}` });
+    }
     res.setFlash('success', `Sent test alert to #${channel.login}: ${result.message}`);
   } catch (err) {
     console.warn('[Test Alert Error]', err.message);
+    if (wantsJson) {
+      return res.status(400).json({ ok: false, error: `Failed to send test alert: ${err.message}` });
+    }
     res.setFlash('error', `Failed to send test alert: ${err.message}`);
   }
 
@@ -755,6 +928,7 @@ apiRouter.post('/redemptions/save', requireAuth, (req, res) => {
       cooldownSeconds,
       enabled,
     });
+    subscribeChannel(channel.id).catch(() => {});
     res.setFlash('success', `Reward trigger "${rewardTitle}" saved successfully.`);
   } catch (err) {
     console.warn('[Save Redemption Trigger Error]', err.message);
@@ -778,6 +952,7 @@ apiRouter.post('/redemptions/toggle', requireAuth, (req, res) => {
   }
 
   toggleChannelPointTrigger(channel.id, id, enabled);
+  subscribeChannel(channel.id).catch(() => {});
   res.setFlash('success', `Reward trigger ${enabled ? 'enabled' : 'disabled'}.`);
   return redirectToTab(res, 'rewards');
 });
@@ -794,6 +969,7 @@ apiRouter.post('/redemptions/delete', requireAuth, (req, res) => {
   }
 
   deleteChannelPointTrigger(channel.id, id);
+  subscribeChannel(channel.id).catch(() => {});
   res.setFlash('success', 'Reward trigger deleted.');
   return redirectToTab(res, 'rewards');
 });
@@ -803,17 +979,27 @@ apiRouter.post('/redemptions/test', requireAuth, async (req, res) => {
   const channel = resolveTargetChannel(req, res);
   if (!channel) return;
 
+  const wantsJson = req.xhr || req.headers.accept?.includes('application/json');
   const id = String(req.body.id || '').trim();
   if (!id) {
+    if (wantsJson) {
+      return res.status(400).json({ ok: false, error: 'Trigger ID is required.' });
+    }
     res.setFlash('error', 'Trigger ID is required.');
     return redirectToTab(res, 'rewards');
   }
 
   try {
     const result = await executeTestRedemption(channel.id, id);
+    if (wantsJson) {
+      return res.json({ ok: true, message: `Dispatched test redemption response: ${result.message}` });
+    }
     res.setFlash('success', `Dispatched test redemption response: ${result.message}`);
   } catch (err) {
     console.warn('[Test Redemption Error]', err.message);
+    if (wantsJson) {
+      return res.status(400).json({ ok: false, error: `Failed to test trigger: ${err.message}` });
+    }
     res.setFlash('error', `Failed to test trigger: ${err.message}`);
   }
 

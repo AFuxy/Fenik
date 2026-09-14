@@ -4,6 +4,7 @@ import { sendChatMessage, getUserByLogin, getStreamInfo, getChannelInformation, 
 import { checkAutoModeration, grantLinkPermit } from './moderationService.js';
 import { recordChatMessage } from './timerService.js';
 import { executeShoutout, checkAutoShoutoutOnChat } from './shoutoutService.js';
+import { recordActivity } from './activityService.js';
 
 // Cooldown tracker: `${channelId}:${trigger}` -> lastExecutionTimestamp
 const cooldowns = new Map();
@@ -216,18 +217,20 @@ export async function dispatchChatMessage(
     getChannelInfoFn = getChannelInformation,
     getStreamInfoFn = getStreamInfo,
     getFollowAgeFn = getFollowAge,
+    channel: injectedChannel = null,
+    botId: injectedBotId = null,
   } = {}
 ) {
-  const bot = getBotAccount();
+  const bot = injectedBotId ? { userId: injectedBotId } : getBotAccount();
   if (!bot) return;
 
   const botId = bot.userId;
   // Ignore messages from the bot itself to prevent infinite loops
   if (event.chatter_user_id === String(botId)) return;
 
-  const broadcasterId = String(event.broadcaster_user_id);
-  const channel = getChannel(broadcasterId);
-  if (!channel || !channel.joined) return;
+  const broadcasterId = String(event.broadcaster_user_id || injectedChannel?.id);
+  const channel = injectedChannel || getChannel(broadcasterId);
+  if (!channel || (!injectedChannel && !channel.joined)) return;
 
   // Run auto-moderation checks
   const wasModerated = await checkAutoModeration(event, channel, botId);
@@ -408,19 +411,24 @@ export async function dispatchChatMessage(
   }
 
   // 3. Custom Commands matching
-  const customCmd = (channel.commands || []).find(
-    (c) => c.trigger?.toLowerCase() === trigger && c.enabled
-  );
+  const customCmd = (channel.commands || []).find((c) => {
+    if (!c.enabled) return false;
+    if (c.trigger?.toLowerCase() === trigger) return true;
+    const aliases = (c.aliases || '').split(',').map((a) => a.trim().toLowerCase()).filter(Boolean);
+    return aliases.includes(trigger);
+  });
 
   if (!customCmd) return;
 
   // Verify permission
   if (!hasPermission(event, channel.id, customCmd.userlevel)) return;
 
-  // Verify cooldown
+  // Verify cooldown (shared between primary trigger and all its aliases)
+  const customCdKey = `${channel.id}:cmd:${customCmd.id}`;
+  const customLastRun = cooldowns.get(customCdKey) || 0;
   const cdSec = customCmd.cooldown || 5;
-  if (Date.now() - lastRun < cdSec * 1000) return;
-  cooldowns.set(cdKey, Date.now());
+  if (Date.now() - customLastRun < cdSec * 1000) return;
+  cooldowns.set(customCdKey, Date.now());
 
   // Increment counter in SQLite DB
   incrementCommandCounter(channel.id, customCmd.id);
@@ -438,4 +446,13 @@ export async function dispatchChatMessage(
   });
 
   await reply(response);
+
+  recordActivity(channel.id, {
+    type: 'command',
+    title: `Command ${prefix}${customCmd.trigger}`,
+    detail: response,
+    actor: event.chatter_user_name,
+  });
 }
+
+export { dispatchChatMessage as handleChatMessage };

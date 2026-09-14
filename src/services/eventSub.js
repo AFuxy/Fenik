@@ -1,6 +1,12 @@
 import WebSocket from 'ws';
-import { getBotAccount, getActiveChannels } from '../db/index.js';
-import { createEventSubSubscription, getValidChannelToken } from './twitchApi.js';
+import { getBotAccount, getActiveChannels, getChannel } from '../db/index.js';
+import {
+  createEventSubSubscription,
+  getValidBotToken,
+  getValidChannelToken,
+  validateUserToken,
+  checkBotModeratorStatus,
+} from './twitchApi.js';
 import { dispatchChatMessage } from './commandService.js';
 import { handleIncomingRaid } from './raidService.js';
 import { executeFollowAlert, executeSubscriptionAlert } from './alertService.js';
@@ -12,13 +18,14 @@ let reconnectUrl = null;
 let currentSessionId = null;
 let isRunning = false;
 const subscribedChannels = new Set();
+const broadcasterSockets = new Map(); // broadcasterId -> { ws, sessionId, keepaliveTimeout, reconnectTimeout, token, login, wantsSubs, wantsPoints }
 
 const TWITCH_WS_URL = 'wss://eventsub.wss.twitch.tv/ws';
 
 /**
  * Start the EventSub WebSocket listener.
  */
-export function startEventSub() {
+export async function startEventSub() {
   if (isRunning) return;
   const bot = getBotAccount();
   if (!bot) {
@@ -26,12 +33,22 @@ export function startEventSub() {
     return;
   }
 
+  // Pre-flight check on central bot token scopes
+  try {
+    const botToken = await getValidBotToken();
+    const botValidation = await validateUserToken(botToken);
+    const botScopes = new Set(botValidation?.scopes || []);
+    if (!botScopes.has('moderator:read:followers')) {
+      console.log(`[EventSub] Note: Central bot @${bot.displayName} lacks 'moderator:read:followers' scope. Follower alerts will remain inactive until bot is re-authorized in Admin Panel.`);
+    }
+  } catch (_) {}
+
   isRunning = true;
   connect(TWITCH_WS_URL);
 }
 
 /**
- * Stop the EventSub WebSocket listener.
+ * Stop the EventSub WebSocket listener and any broadcaster sockets.
  */
 export function stopEventSub() {
   isRunning = false;
@@ -39,8 +56,14 @@ export function stopEventSub() {
   subscribedChannels.clear();
   currentSessionId = null;
   if (ws) {
-    ws.close();
+    try {
+      ws.removeAllListeners();
+      ws.close();
+    } catch (_) {}
     ws = null;
+  }
+  for (const bId of broadcasterSockets.keys()) {
+    closeBroadcasterSocket(bId);
   }
 }
 
@@ -88,7 +111,7 @@ async function handleSocketMessage(message) {
       currentSessionId = payload.session.id;
       const keepaliveSec = payload.session.keepalive_timeout_seconds || 10;
       resetKeepaliveTimer(keepaliveSec);
-      console.log(`[EventSub] Session initialized (${currentSessionId}). Syncing channel listeners...`);
+      console.log(`[EventSub] Central bot session initialized (${currentSessionId}). Syncing channel listeners...`);
 
       // Subscribe to all active channels
       await subscribeAllActiveChannels();
@@ -168,7 +191,188 @@ function resetKeepaliveTimer(seconds) {
 }
 
 /**
+ * Helper to subscribe to subscription alerts (channel.subscribe, message, gift).
+ */
+async function subscribeSubs(bId, sessionId, token, login) {
+  const types = [
+    { type: 'channel.subscribe', version: '1' },
+    { type: 'channel.subscription.message', version: '1' },
+    { type: 'channel.subscription.gift', version: '1' },
+  ];
+
+  for (const { type, version } of types) {
+    try {
+      await createEventSubSubscription({
+        type,
+        version,
+        condition: { broadcaster_user_id: bId },
+        transport: { method: 'websocket', session_id: sessionId },
+        token,
+      });
+    } catch (err) {
+      if (!err.message?.includes('already exists')) {
+        console.warn(`[EventSub] Sub alert notice (${type}) for #${login || bId}:`, err.message);
+      }
+    }
+  }
+}
+
+/**
+ * Helper to subscribe to channel point redemption triggers.
+ */
+async function subscribePoints(bId, sessionId, token, login) {
+  try {
+    await createEventSubSubscription({
+      type: 'channel.channel_points_custom_reward_redemption.add',
+      version: '1',
+      condition: { broadcaster_user_id: bId },
+      transport: { method: 'websocket', session_id: sessionId },
+      token,
+    });
+  } catch (err) {
+    if (!err.message?.includes('already exists')) {
+      console.warn(`[EventSub] Reward redemption notice for #${login || bId}:`, err.message);
+    }
+  }
+}
+
+/**
+ * Close and tear down a broadcaster-specific WebSocket listener.
+ */
+function closeBroadcasterSocket(bId) {
+  const entry = broadcasterSockets.get(bId);
+  if (!entry) return;
+  clearTimeout(entry.keepaliveTimeout);
+  clearTimeout(entry.reconnectTimeout);
+  if (entry.ws) {
+    try {
+      entry.ws.removeAllListeners();
+      entry.ws.close();
+    } catch (_) {}
+  }
+  broadcasterSockets.delete(bId);
+}
+
+/**
+ * Connect or synchronize a dedicated WebSocket for a broadcaster who granted subscriber or redemption scopes.
+ * Solves Twitch error: "websocket transport cannot have subscriptions created by different users".
+ */
+function syncBroadcasterSocket(bId, channel, { broadcasterToken, wantsSubs, wantsPoints }) {
+  const existing = broadcasterSockets.get(bId);
+  if (existing && existing.ws && (existing.ws.readyState === WebSocket.OPEN || existing.ws.readyState === WebSocket.CONNECTING)) {
+    existing.wantsSubs = wantsSubs;
+    existing.wantsPoints = wantsPoints;
+    existing.token = broadcasterToken;
+    if (existing.sessionId) {
+      if (wantsSubs) subscribeSubs(bId, existing.sessionId, broadcasterToken, channel.login);
+      if (wantsPoints) subscribePoints(bId, existing.sessionId, broadcasterToken, channel.login);
+    }
+    return;
+  }
+
+  closeBroadcasterSocket(bId);
+
+  const socketState = {
+    ws: null,
+    sessionId: null,
+    keepaliveTimeout: null,
+    reconnectTimeout: null,
+    wantsSubs,
+    wantsPoints,
+    token: broadcasterToken,
+    login: channel.login,
+  };
+
+  broadcasterSockets.set(bId, socketState);
+  connectBroadcasterSocket(bId);
+}
+
+function connectBroadcasterSocket(bId) {
+  const state = broadcasterSockets.get(bId);
+  if (!state || !isRunning) return;
+
+  const bWs = new WebSocket(TWITCH_WS_URL);
+  state.ws = bWs;
+
+  function resetBKeepalive(sec) {
+    clearTimeout(state.keepaliveTimeout);
+    state.keepaliveTimeout = setTimeout(() => {
+      console.warn(`[EventSub] Keepalive timeout for #${state.login} listener. Reconnecting...`);
+      if (bWs) bWs.close();
+    }, (sec + 2) * 1000);
+  }
+
+  bWs.on('open', () => {
+    // Awaiting welcome
+  });
+
+  bWs.on('message', async (data) => {
+    try {
+      const msg = JSON.parse(data.toString());
+      const { metadata, payload } = msg;
+      const msgType = metadata?.message_type;
+
+      if (msgType === 'session_welcome') {
+        state.sessionId = payload.session.id;
+        const keepaliveSec = payload.session.keepalive_timeout_seconds || 10;
+        resetBKeepalive(keepaliveSec);
+        console.log(`[EventSub] Dedicated listener active for #${state.login} (${state.sessionId}).`);
+
+        if (state.wantsSubs) {
+          await subscribeSubs(bId, state.sessionId, state.token, state.login);
+        }
+        if (state.wantsPoints) {
+          await subscribePoints(bId, state.sessionId, state.token, state.login);
+        }
+      } else if (msgType === 'session_keepalive') {
+        resetBKeepalive(15);
+      } else if (msgType === 'notification') {
+        resetBKeepalive(15);
+        const subType = metadata?.subscription_type;
+        if (
+          subType === 'channel.subscribe' ||
+          subType === 'channel.subscription.message' ||
+          subType === 'channel.subscription.gift'
+        ) {
+          try {
+            await executeSubscriptionAlert(payload.event, subType);
+          } catch (err) {
+            console.error(`[EventSub] Error handling subscription alert for #${state.login}:`, err);
+          }
+        } else if (subType === 'channel.channel_points_custom_reward_redemption.add') {
+          try {
+            await executeRedemptionTrigger(payload.event);
+          } catch (err) {
+            console.error(`[EventSub] Error handling redemption trigger for #${state.login}:`, err);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[EventSub] Error parsing message on #${state.login} listener:`, err);
+    }
+  });
+
+  bWs.on('error', (err) => {
+    console.warn(`[EventSub] WebSocket error for #${state.login}:`, err.message);
+  });
+
+  bWs.on('close', (code, reason) => {
+    clearTimeout(state.keepaliveTimeout);
+    state.sessionId = null;
+    if (isRunning && broadcasterSockets.has(bId)) {
+      clearTimeout(state.reconnectTimeout);
+      state.reconnectTimeout = setTimeout(() => {
+        if (isRunning && broadcasterSockets.has(bId)) {
+          connectBroadcasterSocket(bId);
+        }
+      }, 5000);
+    }
+  });
+}
+
+/**
  * Subscribe a single channel to chat, raid, follow, sub, and redemption events.
+ * Performs rigorous pre-flight scope validation to avoid unauthorized Twitch API requests.
  */
 export async function subscribeChannel(broadcasterId) {
   if (!currentSessionId) return false;
@@ -176,15 +380,28 @@ export async function subscribeChannel(broadcasterId) {
   if (!bot) return false;
 
   const bId = String(broadcasterId);
-  if (subscribedChannels.has(bId)) return true;
+  // 1. Skip non-numeric / test mock channel IDs immediately
+  if (!/^\d+$/.test(bId)) {
+    return false;
+  }
 
+  const channel = getChannel(bId);
+  if (!channel || !channel.joined) return false;
+
+  let botToken = null;
   try {
-    let broadcasterToken = null;
-    try {
-      broadcasterToken = await getValidChannelToken(bId);
-    } catch (_) {}
+    botToken = await getValidBotToken();
+  } catch (err) {
+    console.warn('[EventSub] Central bot token not available:', err.message);
+    return false;
+  }
 
-    // 1. Subscribe to chat messages
+  // Pre-validate bot token and obtain granted scopes
+  const botValidation = await validateUserToken(botToken);
+  const botScopes = new Set(botValidation?.scopes || []);
+
+  // 1. Subscribe to chat messages on Central Bot WebSocket
+  try {
     await createEventSubSubscription({
       type: 'channel.chat.message',
       version: '1',
@@ -196,113 +413,127 @@ export async function subscribeChannel(broadcasterId) {
         method: 'websocket',
         session_id: currentSessionId,
       },
+      token: botToken,
     });
-
-    // 2. Subscribe to incoming raids
-    try {
-      await createEventSubSubscription({
-        type: 'channel.raid',
-        version: '1',
-        condition: {
-          to_broadcaster_user_id: bId,
-        },
-        transport: {
-          method: 'websocket',
-          session_id: currentSessionId,
-        },
-      });
-    } catch (raidErr) {
-      console.warn(`[EventSub] Could not subscribe to channel.raid for ${bId}:`, raidErr.message);
-    }
-
-    // 3. Subscribe to follower events
-    try {
-      await createEventSubSubscription({
-        type: 'channel.follow',
-        version: '2',
-        condition: {
-          broadcaster_user_id: bId,
-          moderator_user_id: String(bot.userId),
-        },
-        transport: {
-          method: 'websocket',
-          session_id: currentSessionId,
-        },
-        token: broadcasterToken,
-      });
-    } catch (followErr) {
-      console.warn(`[EventSub] Could not subscribe to channel.follow for ${bId}:`, followErr.message);
-    }
-
-    // 4. Subscriptions (Sub, Resub, Gift) and Channel Points (requires broadcaster token)
-    if (broadcasterToken) {
-      // 4a. channel.subscribe
-      try {
-        await createEventSubSubscription({
-          type: 'channel.subscribe',
-          version: '1',
-          condition: { broadcaster_user_id: bId },
-          transport: { method: 'websocket', session_id: currentSessionId },
-          token: broadcasterToken,
-        });
-      } catch (subErr) {
-        console.warn(`[EventSub] Could not subscribe to channel.subscribe for ${bId}:`, subErr.message);
-      }
-
-      // 4b. channel.subscription.message
-      try {
-        await createEventSubSubscription({
-          type: 'channel.subscription.message',
-          version: '1',
-          condition: { broadcaster_user_id: bId },
-          transport: { method: 'websocket', session_id: currentSessionId },
-          token: broadcasterToken,
-        });
-      } catch (resubErr) {
-        console.warn(`[EventSub] Could not subscribe to channel.subscription.message for ${bId}:`, resubErr.message);
-      }
-
-      // 4c. channel.subscription.gift
-      try {
-        await createEventSubSubscription({
-          type: 'channel.subscription.gift',
-          version: '1',
-          condition: { broadcaster_user_id: bId },
-          transport: { method: 'websocket', session_id: currentSessionId },
-          token: broadcasterToken,
-        });
-      } catch (giftErr) {
-        console.warn(`[EventSub] Could not subscribe to channel.subscription.gift for ${bId}:`, giftErr.message);
-      }
-
-      // 4d. channel.channel_points_custom_reward_redemption.add
-      try {
-        await createEventSubSubscription({
-          type: 'channel.channel_points_custom_reward_redemption.add',
-          version: '1',
-          condition: { broadcaster_user_id: bId },
-          transport: { method: 'websocket', session_id: currentSessionId },
-          token: broadcasterToken,
-        });
-      } catch (pointsErr) {
-        console.warn(`[EventSub] Could not subscribe to channel.channel_points_custom_reward_redemption.add for ${bId}:`, pointsErr.message);
-      }
-    }
-
-    subscribedChannels.add(bId);
-    console.log(`[EventSub] Subscribed to channel ${bId} (chat & raids).`);
-    return true;
   } catch (err) {
-    console.error(`[EventSub] Failed to subscribe to channel ${bId}:`, err.message);
-    return false;
+    if (!err.message?.includes('already exists')) {
+      console.warn(`[EventSub] Chat listener notice for #${channel.login}:`, err.message);
+    }
   }
+
+  // 2. Subscribe to incoming raids on Central Bot WebSocket
+  try {
+    await createEventSubSubscription({
+      type: 'channel.raid',
+      version: '1',
+      condition: {
+        to_broadcaster_user_id: bId,
+      },
+      transport: {
+        method: 'websocket',
+        session_id: currentSessionId,
+      },
+      token: botToken,
+    });
+  } catch (raidErr) {
+    if (!raidErr.message?.includes('already exists')) {
+      console.warn(`[EventSub] Raid listener notice for #${channel.login}:`, raidErr.message);
+    }
+  }
+
+  let broadcasterToken = null;
+  try {
+    broadcasterToken = await getValidChannelToken(bId);
+  } catch (_) {}
+
+  // 3. Follower alerts (channel.follow v2)
+  // Strict pre-check:
+  // - Bot token MUST have 'moderator:read:followers' scope
+  // - Streamer must have followEnabled !== false
+  // - Bot must be moderator in the channel
+  const streamAlerts = channel.streamAlerts || {};
+  const followEnabled = streamAlerts.followEnabled !== false;
+
+  if (botScopes.has('moderator:read:followers') && followEnabled) {
+    let isMod = bId === String(bot.userId);
+    if (!isMod) {
+      isMod = await checkBotModeratorStatus({
+        broadcasterId: bId,
+        botUserId: bot.userId,
+        userToken: broadcasterToken,
+      });
+    }
+
+    if (isMod) {
+      try {
+        await createEventSubSubscription({
+          type: 'channel.follow',
+          version: '2',
+          condition: {
+            broadcaster_user_id: bId,
+            moderator_user_id: String(bot.userId),
+          },
+          transport: {
+            method: 'websocket',
+            session_id: currentSessionId,
+          },
+          token: botToken,
+        });
+      } catch (followErr) {
+        if (!followErr.message?.includes('already exists')) {
+          console.warn(`[EventSub] Follow alert notice for #${channel.login}:`, followErr.message);
+        }
+      }
+    }
+  }
+
+  // 4. Broadcaster-scoped Subscriptions & Redemptions
+  // Strict pre-check:
+  // - Broadcaster token must exist and have channel:read:subscriptions / channel:read:redemptions
+  // - Streamer must have enabled sub alerts or redemptions
+  if (broadcasterToken) {
+    const chValidation = await validateUserToken(broadcasterToken);
+    const chScopes = new Set(chValidation?.scopes || []);
+
+    const hasSubScope = chScopes.has('channel:read:subscriptions');
+    const wantsSubs = hasSubScope && streamAlerts.subEnabled !== false;
+
+    const hasPointsScope = chScopes.has('channel:read:redemptions');
+    const triggers = channel.channelPointTriggers || [];
+    const wantsPoints = hasPointsScope && Array.isArray(triggers) && triggers.some((t) => t.enabled);
+
+    if (bId === String(bot.userId)) {
+      // If broadcaster IS the central bot account, subscriptions live on bot WebSocket
+      if (wantsSubs) {
+        await subscribeSubs(bId, currentSessionId, botToken, channel.login);
+      }
+      if (wantsPoints) {
+        await subscribePoints(bId, currentSessionId, botToken, channel.login);
+      }
+    } else if (wantsSubs || wantsPoints) {
+      // Connect dedicated Broadcaster WebSocket for this user (avoids Twitch 400 user mismatch)
+      syncBroadcasterSocket(bId, channel, {
+        broadcasterToken,
+        wantsSubs,
+        wantsPoints,
+      });
+    } else {
+      // Broadcaster has no active sub alerts or point triggers, or lacks scopes: ensure no socket is open
+      closeBroadcasterSocket(bId);
+    }
+  }
+
+  subscribedChannels.add(bId);
+  console.log(`[EventSub] Subscribed to channel #${channel.login} (${bId}) for chat & raids.`);
+  return true;
 }
 
 /**
  * Subscribe all active channels registered in the database.
+ * Automatically filters out non-numeric mock test IDs to avoid unnecessary API requests.
  */
 export async function subscribeAllActiveChannels() {
-  const activeChannels = getActiveChannels();
+  const activeChannels = getActiveChannels().filter((ch) => /^\d+$/.test(String(ch.id)));
   console.log(`[EventSub] Subscribing ${activeChannels.length} active channel(s)...`);
 
   for (const channel of activeChannels) {
@@ -317,5 +548,6 @@ export function unsubscribeChannel(broadcasterId) {
   if (!broadcasterId) return;
   const bId = String(broadcasterId);
   subscribedChannels.delete(bId);
+  closeBroadcasterSocket(bId);
   console.log(`[EventSub] Unsubscribed channel ${bId}.`);
 }

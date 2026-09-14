@@ -54,6 +54,7 @@ export function initDb() {
       cooldown INTEGER NOT NULL DEFAULT 5,
       counter INTEGER NOT NULL DEFAULT 0,
       enabled INTEGER NOT NULL DEFAULT 1,
+      aliases TEXT DEFAULT '',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       UNIQUE(channel_id, trigger)
@@ -63,6 +64,10 @@ export function initDb() {
       channel_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
       filter_links INTEGER NOT NULL DEFAULT 0,
       filter_caps INTEGER NOT NULL DEFAULT 0,
+      filter_emotes INTEGER NOT NULL DEFAULT 0,
+      max_emotes INTEGER NOT NULL DEFAULT 10,
+      filter_repetition INTEGER NOT NULL DEFAULT 0,
+      max_repetition INTEGER NOT NULL DEFAULT 4,
       banned_words TEXT NOT NULL DEFAULT '[]',
       updated_at INTEGER NOT NULL
     );
@@ -177,6 +182,15 @@ export function initDb() {
   try { db.prepare('ALTER TABLE channel_managers ADD COLUMN display_name TEXT').run(); } catch (_) {}
   try { db.prepare('ALTER TABLE channel_managers ADD COLUMN avatar_url TEXT').run(); } catch (_) {}
   try { db.prepare('ALTER TABLE channel_managers ADD COLUMN user_id TEXT').run(); } catch (_) {}
+
+  // Safe migrations for commands aliases
+  try { db.prepare("ALTER TABLE commands ADD COLUMN aliases TEXT DEFAULT ''").run(); } catch (_) {}
+
+  // Safe migrations for moderation_settings (emote & repetition spam filters)
+  try { db.prepare('ALTER TABLE moderation_settings ADD COLUMN filter_emotes INTEGER NOT NULL DEFAULT 0').run(); } catch (_) {}
+  try { db.prepare('ALTER TABLE moderation_settings ADD COLUMN max_emotes INTEGER NOT NULL DEFAULT 10').run(); } catch (_) {}
+  try { db.prepare('ALTER TABLE moderation_settings ADD COLUMN filter_repetition INTEGER NOT NULL DEFAULT 0').run(); } catch (_) {}
+  try { db.prepare('ALTER TABLE moderation_settings ADD COLUMN max_repetition INTEGER NOT NULL DEFAULT 4').run(); } catch (_) {}
 }
 
 // Automatically initialize schema on module load

@@ -1104,6 +1104,363 @@ describe('Server HTTP Routes & Clean URL Flow', () => {
     const deletedCh = getChannel('7723');
     assert.equal(deletedCh.channelPointTriggers.length, 0);
   });
+
+  it('should return JSON when test endpoints are invoked with Accept: application/json', async () => {
+    upsertChannel({
+      id: '8810',
+      login: 'jsontestchan',
+      displayName: 'JsonTestChan',
+    });
+    const sessionToken = createSession({
+      userId: '8810',
+      login: 'jsontestchan',
+      displayName: 'JsonTestChan',
+    });
+
+    // 1. /api/alerts/test with Accept: application/json
+    const alertRes = await fetch(`${baseUrl}/api/alerts/test`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '8810',
+        type: 'follow',
+      }).toString(),
+    });
+    // Status is 400 because central bot is not linked in test mock, but it returns JSON { ok: false, error: ... } instead of redirecting!
+    assert.equal(alertRes.status, 400);
+    const alertJson = await alertRes.json();
+    assert.equal(alertJson.ok, false);
+    assert.ok(alertJson.error.includes('Central bot'));
+
+    // 2. /api/send-test with Accept: application/json
+    const sendRes = await fetch(`${baseUrl}/api/send-test`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '8810',
+        message: 'Hello test',
+      }).toString(),
+    });
+    assert.equal(sendRes.status, 400);
+    const sendJson = await sendRes.json();
+    assert.equal(sendJson.ok, false);
+    assert.ok(sendJson.error.includes('Central bot'));
+
+    // 3. /api/shoutout/test with Accept: application/json
+    const shoutoutRes = await fetch(`${baseUrl}/api/shoutout/test`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '8810',
+        target: 'speedy',
+      }).toString(),
+    });
+    assert.equal(shoutoutRes.status, 400);
+    const shoutoutJson = await shoutoutRes.json();
+    assert.equal(shoutoutJson.ok, false);
+    assert.ok(shoutoutJson.error.includes('Central bot'));
+  });
+
+  it('should render WAI-ARIA tabpanel and modal attributes across dashboard and admin views', async () => {
+    upsertChannel({
+      id: '8820',
+      login: 'ariatestchan',
+      displayName: 'AriaTestChan',
+    });
+    const sessionToken = createSession({
+      userId: '8820',
+      login: 'ariatestchan',
+      displayName: 'AriaTestChan',
+    });
+
+    const dashRes = await fetch(`${baseUrl}/dashboard`, {
+      headers: { Cookie: `session_token=${sessionToken}` },
+    });
+    assert.equal(dashRes.status, 200);
+    const dashHtml = await dashRes.text();
+
+    // Verify tabs have role="tablist", role="tab", role="tabpanel"
+    assert.ok(dashHtml.includes('role="tablist"'));
+    assert.ok(dashHtml.includes('role="tab"'));
+    assert.ok(dashHtml.includes('role="tabpanel"'));
+    assert.ok(dashHtml.includes('aria-labelledby="tab-btn-overview"'));
+    assert.ok(dashHtml.includes('aria-labelledby="tab-btn-alerts"'));
+    assert.ok(dashHtml.includes('aria-labelledby="tab-btn-rewards"'));
+    assert.ok(dashHtml.includes('aria-labelledby="tab-btn-test"'));
+
+    // Verify admin modal has role="alertdialog" and aria-modal="true"
+    const adminSessionToken = createSession({
+      userId: '1001',
+      login: 'afuxy',
+      displayName: 'Afuxy',
+    });
+    const adminRes = await fetch(`${baseUrl}/admin`, {
+      headers: { Cookie: `session_token=${adminSessionToken}` },
+    });
+    assert.equal(adminRes.status, 200);
+    const adminHtml = await adminRes.text();
+    assert.ok(adminHtml.includes('role="alertdialog"'));
+    assert.ok(adminHtml.includes('aria-modal="true"'));
+    assert.ok(adminHtml.includes('aria-labelledby="deleteModalTitle"'));
+    assert.ok(adminHtml.includes('aria-describedby="deleteModalDesc"'));
+    assert.ok(adminHtml.includes('aria-label="Filter streamers by name, login, or ID"'));
+  });
+
+  it('should render flash notifications inside floating ks-toast-container and dismiss toasts on tab switch', async () => {
+    upsertChannel({
+      id: '8830',
+      login: 'toastchan',
+      displayName: 'ToastChan',
+    });
+    const sessionToken = createSession({
+      userId: '8830',
+      login: 'toastchan',
+      displayName: 'ToastChan',
+    });
+
+    // Send a flash message via cookie
+    const flashCookie = JSON.stringify({ success: 'Channel settings updated cleanly!' });
+    const dashRes = await fetch(`${baseUrl}/dashboard`, {
+      headers: {
+        Cookie: `session_token=${sessionToken}; flash_message=${encodeURIComponent(flashCookie)}`,
+      },
+    });
+    assert.equal(dashRes.status, 200);
+    const dashHtml = await dashRes.text();
+
+    // Verify floating toast container is present and holds the notification
+    assert.ok(dashHtml.includes('id="ks-toast-container"'));
+    assert.ok(dashHtml.includes('class="ks-toast ks-toast-success"'));
+    assert.ok(dashHtml.includes('Channel settings updated cleanly!'));
+    // Verify it includes dismissal on tab change in script
+    assert.ok(dashHtml.includes('dismissAllToasts()'));
+  });
+
+  it('should export custom commands via GET /api/commands/export as JSON attachment with aliases', async () => {
+    const { upsertCommand } = await import('../src/db/index.js');
+    upsertChannel({
+      id: '8910',
+      login: 'exportstreamer',
+      displayName: 'ExportStreamer',
+    });
+    const sessionToken = createSession({
+      userId: '8910',
+      login: 'exportstreamer',
+      displayName: 'ExportStreamer',
+    });
+
+    upsertCommand('8910', {
+      trigger: 'discord',
+      response: 'Join https://discord.gg/stream',
+      userlevel: 'everyone',
+      cooldown: 5,
+      aliases: 'dc, disc',
+      enabled: true,
+    });
+
+    const exportRes = await fetch(`${baseUrl}/api/commands/export?channelId=8910`, {
+      headers: { Cookie: `session_token=${sessionToken}` },
+    });
+
+    assert.equal(exportRes.status, 200);
+    assert.ok(exportRes.headers.get('content-type')?.includes('application/json'));
+    assert.ok(exportRes.headers.get('content-disposition')?.includes('attachment; filename="commands-exportstreamer-'));
+
+    const data = await exportRes.json();
+    assert.equal(data.channel, 'exportstreamer');
+    assert.ok(Array.isArray(data.commands));
+    assert.ok(data.commands.length >= 1);
+    const discordCmd = data.commands.find((c) => c.trigger === 'discord');
+    assert.ok(discordCmd, 'Export must include discord command');
+    assert.equal(discordCmd.trigger, 'discord');
+    assert.equal(discordCmd.aliases, 'dc,disc');
+  });
+
+  it('should import custom commands via POST /api/commands/import in merge and replace modes', async () => {
+    const { upsertCommand, getCommandsForChannel } = await import('../src/db/index.js');
+    upsertChannel({
+      id: '8920',
+      login: 'importstreamer',
+      displayName: 'ImportStreamer',
+    });
+    const sessionToken = createSession({
+      userId: '8920',
+      login: 'importstreamer',
+      displayName: 'ImportStreamer',
+    });
+
+    // Seed with existing command !rules
+    upsertCommand('8920', {
+      trigger: 'rules',
+      response: 'Be nice and respectful',
+      userlevel: 'everyone',
+      cooldown: 10,
+      aliases: '',
+      enabled: true,
+    });
+
+    // 1. Merge Mode: import updated !discord and new !twitter
+    const importDataMerge = {
+      commands: [
+        { trigger: 'discord', response: 'https://discord.gg/merge', aliases: 'dc' },
+        { trigger: 'twitter', response: '@streamer', aliases: 'x' },
+      ],
+    };
+
+    const mergeRes = await fetch(`${baseUrl}/api/commands/import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '8920',
+        mode: 'merge',
+        commandsJson: JSON.stringify(importDataMerge),
+      }).toString(),
+      redirect: 'manual',
+    });
+
+    assert.equal(mergeRes.status, 302);
+    assert.equal(mergeRes.headers.get('location'), '/dashboard');
+
+    const mergedCmds = getCommandsForChannel('8920');
+    // Verify rules was preserved
+    const rulesCmd = mergedCmds.find((c) => c.trigger === 'rules');
+    assert.ok(rulesCmd, 'Existing rules command must be preserved in merge mode');
+    // Verify discord was updated
+    const discordCmd = mergedCmds.find((c) => c.trigger === 'discord');
+    assert.ok(discordCmd);
+    assert.equal(discordCmd.response, 'https://discord.gg/merge');
+    assert.equal(discordCmd.aliases, 'dc');
+    // Verify twitter was added
+    const twitterCmd = mergedCmds.find((c) => c.trigger === 'twitter');
+    assert.ok(twitterCmd);
+    assert.equal(twitterCmd.response, '@streamer');
+    assert.equal(twitterCmd.aliases, 'x');
+
+    // 2. Replace Mode: import only !specs
+    const importDataReplace = [
+      { trigger: 'specs', response: 'CPU: Ryzen 9, GPU: RTX 4090', aliases: 'pc, hardware' },
+    ];
+
+    const replaceRes = await fetch(`${baseUrl}/api/commands/import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '8920',
+        mode: 'replace',
+        commandsJson: JSON.stringify(importDataReplace),
+      }).toString(),
+      redirect: 'manual',
+    });
+
+    assert.equal(replaceRes.status, 302);
+
+    const replacedCmds = getCommandsForChannel('8920');
+    assert.equal(replacedCmds.length, 1);
+    assert.equal(replacedCmds[0].trigger, 'specs');
+    assert.equal(replacedCmds[0].aliases, 'pc,hardware');
+  });
+
+  it('should save emote limit and repetition spam settings via POST /api/moderation', async () => {
+    const { getModerationSettings } = await import('../src/db/index.js');
+    upsertChannel({
+      id: '8930',
+      login: 'modstreamer',
+      displayName: 'ModStreamer',
+    });
+    const sessionToken = createSession({
+      userId: '8930',
+      login: 'modstreamer',
+      displayName: 'ModStreamer',
+    });
+
+    const modRes = await fetch(`${baseUrl}/api/moderation`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '8930',
+        filterLinks: 'on',
+        filterCaps: 'on',
+        filterEmotes: 'on',
+        maxEmotes: '7',
+        filterRepetition: 'on',
+        maxRepetition: '3',
+        bannedWords: 'scam, free followers',
+      }).toString(),
+      redirect: 'manual',
+    });
+
+    assert.equal(modRes.status, 302);
+    assert.equal(modRes.headers.get('location'), '/dashboard');
+
+    const saved = getModerationSettings('8930');
+    assert.equal(saved.filterLinks, true);
+    assert.equal(saved.filterCaps, true);
+    assert.equal(saved.filterEmotes, true);
+    assert.equal(saved.maxEmotes, 7);
+    assert.equal(saved.filterRepetition, true);
+    assert.equal(saved.maxRepetition, 3);
+    assert.deepEqual(saved.bannedWords, ['scam', 'free followers']);
+  });
+
+  it('should return recent live activities via GET /api/activity for dashboard feed', async () => {
+    const { recordActivity } = await import('../src/services/activityService.js');
+    upsertChannel({
+      id: '8940',
+      login: 'activitystreamer',
+      displayName: 'ActivityStreamer',
+    });
+    const sessionToken = createSession({
+      userId: '8940',
+      login: 'activitystreamer',
+      displayName: 'ActivityStreamer',
+    });
+
+    recordActivity('8940', {
+      type: 'command',
+      title: 'Command !uptime',
+      detail: 'Live for 1h 45m',
+      actor: 'chatter42',
+    });
+
+    const actRes = await fetch(`${baseUrl}/api/activity?channelId=8940&limit=10`, {
+      headers: {
+        Accept: 'application/json',
+        Cookie: `session_token=${sessionToken}`,
+      },
+    });
+
+    assert.equal(actRes.status, 200);
+    const data = await actRes.json();
+    assert.equal(data.ok, true);
+    assert.equal(data.channel, 'activitystreamer');
+    assert.ok(Array.isArray(data.activities));
+    assert.equal(data.activities.length, 1);
+    assert.equal(data.activities[0].title, 'Command !uptime');
+    assert.equal(data.activities[0].type, 'command');
+    assert.equal(data.activities[0].actor, 'chatter42');
+  });
 });
+
 
 

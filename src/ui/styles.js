@@ -27,7 +27,13 @@ export const impeccableCss = `
     --ks-champagne: oklch(91% 0 0);
     --ks-text-warm: oklch(88% 0 0);
     --ks-text-muted: oklch(72% 0 0);
-    --ks-text-faint: oklch(52% 0 0);
+    --ks-text-faint: oklch(62% 0 0);
+
+    /* Token Aliases & Backports */
+    --ks-surface: oklch(13% 0.007 95);
+    --ks-gold: var(--ks-kinpaku);
+    --ks-gold-soft: oklch(84% 0.19 80.46 / 0.15);
+    --ks-obsidian-deep: var(--ks-lacquer-deep);
 
     /* Rules & Borders */
     --ks-rule: oklch(100% 0 0 / 0.08);
@@ -690,6 +696,11 @@ export const impeccableCss = `
     border-color: var(--ks-patina);
     color: var(--ks-patina);
   }
+  .ks-tag-vermilion {
+    background: oklch(58% 0.15 35 / 0.14);
+    border-color: var(--ks-vermilion);
+    color: var(--ks-vermilion);
+  }
 
   /* Channel Profile Banner */
   .ks-channel-header {
@@ -883,18 +894,17 @@ export const impeccableCss = `
     flex-direction: column;
     gap: 3px;
     margin-top: 4px;
-    max-height: 500px;
     opacity: 1;
     overflow: hidden;
   }
 
   /* Only animate accordion transitions after initial page paint */
   .ks-sidebar.is-ready .ks-sidebar-items {
-    transition: max-height 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease, margin 0.2s ease;
+    transition: opacity 0.18s ease;
   }
 
   .ks-sidebar-group.is-collapsed .ks-sidebar-items {
-    max-height: 0;
+    display: none;
     opacity: 0;
     margin-top: 0;
     pointer-events: none;
@@ -1237,13 +1247,14 @@ export const impeccableCss = `
   .ks-var-pill {
     display: inline-flex;
     align-items: center;
-    padding: 3px 8px;
+    min-height: 26px;
+    padding: 4px 10px;
     background: var(--ks-raised-lacquer);
     border: 1px solid var(--ks-rule);
     border-radius: var(--ks-radius-xs);
     color: var(--ks-champagne);
     font-family: var(--ks-mono);
-    font-size: 0.74rem;
+    font-size: 0.76rem;
     cursor: pointer;
     line-height: 1.2;
     transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
@@ -1256,5 +1267,97 @@ export const impeccableCss = `
   }
   .ks-var-pill:active {
     transform: translateY(0);
+  }
+
+  /* Toast Notifications (Floating overlays that never push content down) */
+  .ks-toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+    max-width: 440px;
+    width: calc(100vw - 32px);
+  }
+  .ks-toast {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--ks-raised-lacquer);
+    border: 1px solid var(--ks-gold-hairline);
+    border-radius: var(--ks-radius-xs);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75);
+    color: var(--ks-champagne);
+    font-family: var(--ks-font);
+    font-size: 0.88rem;
+    line-height: 1.45;
+    pointer-events: auto;
+    animation: ksToastIn 0.24s var(--ks-ease);
+    transition: opacity 0.22s ease, transform 0.22s var(--ks-ease);
+    will-change: transform, opacity;
+  }
+  .ks-toast-body {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+  }
+  .ks-toast-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ks-toast-text {
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+    font-size: 0.88rem;
+  }
+  .ks-toast-close {
+    background: none;
+    border: none;
+    color: var(--ks-text-muted);
+    cursor: pointer;
+    padding: 4px;
+    margin: -2px -4px -2px 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--ks-radius-xs);
+    transition: color 0.15s ease, opacity 0.15s ease;
+    opacity: 0.65;
+    flex-shrink: 0;
+  }
+  .ks-toast-close:hover {
+    color: var(--ks-champagne);
+    opacity: 1;
+  }
+  .ks-toast-success {
+    border-color: var(--ks-patina);
+  }
+  .ks-toast-success .ks-toast-icon {
+    color: var(--ks-patina);
+  }
+  .ks-toast-error {
+    border-color: var(--ks-vermilion);
+  }
+  .ks-toast-error .ks-toast-icon {
+    color: var(--ks-vermilion);
+  }
+  .ks-toast.is-leaving {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+    pointer-events: none;
+  }
+  @keyframes ksToastIn {
+    from { opacity: 0; transform: translateY(12px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
   }
 `;
