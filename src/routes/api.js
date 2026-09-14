@@ -31,11 +31,20 @@ import {
   addAutoShoutout,
   removeAutoShoutout,
   toggleAutoShoutout,
+  getStreamAlertSettings,
+  updateStreamAlertSettings,
+  getChannelPointTriggers,
+  getChannelPointTriggerById,
+  upsertChannelPointTrigger,
+  toggleChannelPointTrigger,
+  deleteChannelPointTrigger,
 } from '../db/index.js';
 import { subscribeChannel } from '../services/eventSub.js';
 import { sendChatMessage, getUserByLogin, addChannelModerator } from '../services/twitchApi.js';
 import { formatRaidMessage } from '../services/raidService.js';
 import { formatShoutoutMessage } from '../services/shoutoutService.js';
+import { executeTestAlert } from '../services/alertService.js';
+import { executeTestRedemption } from '../services/redemptionService.js';
 
 export const apiRouter = Router();
 
@@ -674,7 +683,144 @@ apiRouter.post('/setup/mod-bot', requireAuth, async (req, res) => {
   }
 });
 
-// 10. Admin Account Deletion Endpoint
+// 10. Save Stream Alerts Settings
+apiRouter.post('/alerts/settings', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const followEnabled = req.body.followEnabled === 'on' || req.body.followEnabled === 'true' || req.body.followEnabled === '1' || req.body.followEnabled === true;
+  const subEnabled = req.body.subEnabled === 'on' || req.body.subEnabled === 'true' || req.body.subEnabled === '1' || req.body.subEnabled === true;
+
+  updateStreamAlertSettings(channel.id, {
+    followEnabled,
+    followMessage: req.body.followMessage,
+    subEnabled,
+    subMessage: req.body.subMessage,
+    resubMessage: req.body.resubMessage,
+    giftSubMessage: req.body.giftSubMessage,
+    communityGiftMessage: req.body.communityGiftMessage,
+  });
+
+  res.setFlash('success', 'Stream alert settings updated successfully.');
+  return redirectToTab(res, 'alerts');
+});
+
+// 11. Test Stream Alert
+apiRouter.post('/alerts/test', requireAuth, async (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const type = String(req.body.type || 'follow').trim();
+
+  try {
+    const result = await executeTestAlert(channel.id, type);
+    res.setFlash('success', `Sent test alert to #${channel.login}: ${result.message}`);
+  } catch (err) {
+    console.warn('[Test Alert Error]', err.message);
+    res.setFlash('error', `Failed to send test alert: ${err.message}`);
+  }
+
+  return redirectToTab(res, 'alerts');
+});
+
+// 12. Save Channel Point Trigger (Create / Update)
+apiRouter.post('/redemptions/save', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const rewardTitle = String(req.body.rewardTitle || '').trim();
+  const responseMessage = String(req.body.responseMessage || '').trim();
+
+  if (!rewardTitle) {
+    res.setFlash('error', 'Reward title is required (must match your Twitch channel points reward).');
+    return redirectToTab(res, 'rewards');
+  }
+
+  if (!responseMessage) {
+    res.setFlash('error', 'Bot response message cannot be empty.');
+    return redirectToTab(res, 'rewards');
+  }
+
+  const id = req.body.id ? String(req.body.id).trim() : null;
+  const rewardId = req.body.rewardId ? String(req.body.rewardId).trim() : null;
+  const cooldownSeconds = parseInt(req.body.cooldownSeconds, 10) || 5;
+  const enabled = req.body.enabled !== undefined ? (req.body.enabled === 'on' || req.body.enabled === 'true' || req.body.enabled === '1' || req.body.enabled === true) : true;
+
+  try {
+    upsertChannelPointTrigger(channel.id, {
+      id,
+      rewardTitle,
+      rewardId,
+      responseMessage,
+      cooldownSeconds,
+      enabled,
+    });
+    res.setFlash('success', `Reward trigger "${rewardTitle}" saved successfully.`);
+  } catch (err) {
+    console.warn('[Save Redemption Trigger Error]', err.message);
+    res.setFlash('error', `Failed to save trigger: ${err.message}`);
+  }
+
+  return redirectToTab(res, 'rewards');
+});
+
+// 13. Toggle Channel Point Trigger
+apiRouter.post('/redemptions/toggle', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const id = String(req.body.id || '').trim();
+  const enabled = req.body.enabled === 'on' || req.body.enabled === 'true' || req.body.enabled === '1' || req.body.enabled === true;
+
+  if (!id) {
+    res.setFlash('error', 'Trigger ID is required.');
+    return redirectToTab(res, 'rewards');
+  }
+
+  toggleChannelPointTrigger(channel.id, id, enabled);
+  res.setFlash('success', `Reward trigger ${enabled ? 'enabled' : 'disabled'}.`);
+  return redirectToTab(res, 'rewards');
+});
+
+// 14. Delete Channel Point Trigger
+apiRouter.post('/redemptions/delete', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const id = String(req.body.id || '').trim();
+  if (!id) {
+    res.setFlash('error', 'Trigger ID is required.');
+    return redirectToTab(res, 'rewards');
+  }
+
+  deleteChannelPointTrigger(channel.id, id);
+  res.setFlash('success', 'Reward trigger deleted.');
+  return redirectToTab(res, 'rewards');
+});
+
+// 15. Test Channel Point Trigger
+apiRouter.post('/redemptions/test', requireAuth, async (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const id = String(req.body.id || '').trim();
+  if (!id) {
+    res.setFlash('error', 'Trigger ID is required.');
+    return redirectToTab(res, 'rewards');
+  }
+
+  try {
+    const result = await executeTestRedemption(channel.id, id);
+    res.setFlash('success', `Dispatched test redemption response: ${result.message}`);
+  } catch (err) {
+    console.warn('[Test Redemption Error]', err.message);
+    res.setFlash('error', `Failed to test trigger: ${err.message}`);
+  }
+
+  return redirectToTab(res, 'rewards');
+});
+
+// 16. Admin Account Deletion Endpoint
 apiRouter.post('/admin/channels/delete', requireAuth, async (req, res) => {
   if (!isAdmin(req.user)) {
     res.setFlash('error', 'Administrator privileges required.');

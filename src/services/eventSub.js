@@ -1,8 +1,10 @@
 import WebSocket from 'ws';
 import { getBotAccount, getActiveChannels } from '../db/index.js';
-import { createEventSubSubscription } from './twitchApi.js';
+import { createEventSubSubscription, getValidChannelToken } from './twitchApi.js';
 import { dispatchChatMessage } from './commandService.js';
 import { handleIncomingRaid } from './raidService.js';
+import { executeFollowAlert, executeSubscriptionAlert } from './alertService.js';
+import { executeRedemptionTrigger } from './redemptionService.js';
 
 let ws = null;
 let keepaliveTimeout = null;
@@ -119,6 +121,28 @@ async function handleSocketMessage(message) {
         } catch (err) {
           console.error('[EventSub] Error handling raid event:', err);
         }
+      } else if (subType === 'channel.follow') {
+        try {
+          await executeFollowAlert(payload.event);
+        } catch (err) {
+          console.error('[EventSub] Error handling follow alert:', err);
+        }
+      } else if (
+        subType === 'channel.subscribe' ||
+        subType === 'channel.subscription.message' ||
+        subType === 'channel.subscription.gift'
+      ) {
+        try {
+          await executeSubscriptionAlert(payload.event, subType);
+        } catch (err) {
+          console.error('[EventSub] Error handling subscription alert:', err);
+        }
+      } else if (subType === 'channel.channel_points_custom_reward_redemption.add') {
+        try {
+          await executeRedemptionTrigger(payload.event);
+        } catch (err) {
+          console.error('[EventSub] Error handling redemption trigger:', err);
+        }
       }
       break;
     }
@@ -144,7 +168,7 @@ function resetKeepaliveTimer(seconds) {
 }
 
 /**
- * Subscribe a single channel to chat and raid events.
+ * Subscribe a single channel to chat, raid, follow, sub, and redemption events.
  */
 export async function subscribeChannel(broadcasterId) {
   if (!currentSessionId) return false;
@@ -155,6 +179,11 @@ export async function subscribeChannel(broadcasterId) {
   if (subscribedChannels.has(bId)) return true;
 
   try {
+    let broadcasterToken = null;
+    try {
+      broadcasterToken = await getValidChannelToken(bId);
+    } catch (_) {}
+
     // 1. Subscribe to chat messages
     await createEventSubSubscription({
       type: 'channel.chat.message',
@@ -184,6 +213,80 @@ export async function subscribeChannel(broadcasterId) {
       });
     } catch (raidErr) {
       console.warn(`[EventSub] Could not subscribe to channel.raid for ${bId}:`, raidErr.message);
+    }
+
+    // 3. Subscribe to follower events
+    try {
+      await createEventSubSubscription({
+        type: 'channel.follow',
+        version: '2',
+        condition: {
+          broadcaster_user_id: bId,
+          moderator_user_id: String(bot.userId),
+        },
+        transport: {
+          method: 'websocket',
+          session_id: currentSessionId,
+        },
+        token: broadcasterToken,
+      });
+    } catch (followErr) {
+      console.warn(`[EventSub] Could not subscribe to channel.follow for ${bId}:`, followErr.message);
+    }
+
+    // 4. Subscriptions (Sub, Resub, Gift) and Channel Points (requires broadcaster token)
+    if (broadcasterToken) {
+      // 4a. channel.subscribe
+      try {
+        await createEventSubSubscription({
+          type: 'channel.subscribe',
+          version: '1',
+          condition: { broadcaster_user_id: bId },
+          transport: { method: 'websocket', session_id: currentSessionId },
+          token: broadcasterToken,
+        });
+      } catch (subErr) {
+        console.warn(`[EventSub] Could not subscribe to channel.subscribe for ${bId}:`, subErr.message);
+      }
+
+      // 4b. channel.subscription.message
+      try {
+        await createEventSubSubscription({
+          type: 'channel.subscription.message',
+          version: '1',
+          condition: { broadcaster_user_id: bId },
+          transport: { method: 'websocket', session_id: currentSessionId },
+          token: broadcasterToken,
+        });
+      } catch (resubErr) {
+        console.warn(`[EventSub] Could not subscribe to channel.subscription.message for ${bId}:`, resubErr.message);
+      }
+
+      // 4c. channel.subscription.gift
+      try {
+        await createEventSubSubscription({
+          type: 'channel.subscription.gift',
+          version: '1',
+          condition: { broadcaster_user_id: bId },
+          transport: { method: 'websocket', session_id: currentSessionId },
+          token: broadcasterToken,
+        });
+      } catch (giftErr) {
+        console.warn(`[EventSub] Could not subscribe to channel.subscription.gift for ${bId}:`, giftErr.message);
+      }
+
+      // 4d. channel.channel_points_custom_reward_redemption.add
+      try {
+        await createEventSubSubscription({
+          type: 'channel.channel_points_custom_reward_redemption.add',
+          version: '1',
+          condition: { broadcaster_user_id: bId },
+          transport: { method: 'websocket', session_id: currentSessionId },
+          token: broadcasterToken,
+        });
+      } catch (pointsErr) {
+        console.warn(`[EventSub] Could not subscribe to channel.channel_points_custom_reward_redemption.add for ${bId}:`, pointsErr.message);
+      }
     }
 
     subscribedChannels.add(bId);

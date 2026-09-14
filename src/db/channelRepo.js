@@ -8,6 +8,8 @@ import { getTimers } from './timerRepo.js';
 import { getRaidSettings } from './raidRepo.js';
 import { getShoutoutSettings } from './shoutoutRepo.js';
 import { getAutoShoutouts } from './autoShoutoutRepo.js';
+import { getStreamAlertSettings } from './alertRepo.js';
+import { getChannelPointTriggers } from './redemptionRepo.js';
 
 export function getChannel(broadcasterId) {
   const row = db.prepare('SELECT * FROM channels WHERE id = ?').get(String(broadcasterId));
@@ -34,6 +36,8 @@ export function getChannel(broadcasterId) {
     raidSettings: getRaidSettings(row.id),
     shoutoutSettings: getShoutoutSettings(row.id),
     autoShoutouts: getAutoShoutouts(row.id),
+    streamAlerts: getStreamAlertSettings(row.id),
+    channelPointTriggers: getChannelPointTriggers(row.id),
   };
 }
 
@@ -127,6 +131,8 @@ export function removeChannel(broadcasterId) {
     db.prepare('DELETE FROM raid_settings WHERE channel_id = ?').run(id);
     db.prepare('DELETE FROM shoutout_settings WHERE channel_id = ?').run(id);
     db.prepare('DELETE FROM auto_shoutouts WHERE channel_id = ?').run(id);
+    db.prepare('DELETE FROM stream_alert_settings WHERE channel_id = ?').run(id);
+    db.prepare('DELETE FROM channel_point_triggers WHERE channel_id = ?').run(id);
   } catch (_) {}
   const stmt = db.prepare('DELETE FROM channels WHERE id = ?');
   const res = stmt.run(id);

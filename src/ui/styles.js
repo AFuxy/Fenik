@@ -502,7 +502,7 @@ export const impeccableCss = `
   }
 
   /* Form Controls */
-  .ks-input-text, .ks-select {
+  .ks-input-text, .ks-select, textarea, .ks-textarea {
     width: 100%;
     min-height: var(--ks-control-md);
     background: var(--ks-lacquer-deep);
@@ -513,10 +513,21 @@ export const impeccableCss = `
     font-family: var(--ks-font);
     font-size: 0.92rem;
     outline: none;
-    transition: border-color var(--ks-quick) var(--ks-ease);
+    transition: border-color var(--ks-quick) var(--ks-ease), box-shadow var(--ks-quick) var(--ks-ease);
   }
-  .ks-input-text:focus, .ks-select:focus {
+  .ks-input-text:focus, .ks-select:focus, textarea:focus, .ks-textarea:focus {
     border-color: var(--ks-kinpaku);
+    box-shadow: 0 0 0 1px var(--ks-gold-hairline);
+  }
+  .ks-input-text::placeholder, textarea::placeholder, .ks-textarea::placeholder {
+    color: var(--ks-text-faint);
+    opacity: 0.8;
+  }
+  textarea, .ks-textarea {
+    min-height: 80px;
+    line-height: 1.5;
+    resize: vertical;
+    padding: 10px 14px;
   }
   .ks-form-group {
     margin-bottom: 18px;
@@ -530,16 +541,64 @@ export const impeccableCss = `
     letter-spacing: 0.02em;
   }
 
-  /* Tactile Urushi Switch */
-  .ks-toggle {
+  /* Standalone Custom Checkboxes */
+  input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--ks-lacquer-deep);
+    border: 1px solid var(--ks-rule);
+    border-radius: var(--ks-radius-xs);
+    cursor: pointer;
+    vertical-align: middle;
+    position: relative;
+    display: inline-block;
+    flex-shrink: 0;
+    transition: background-color var(--ks-quick) var(--ks-ease), border-color var(--ks-quick) var(--ks-ease);
+  }
+  input[type="checkbox"]:hover {
+    border-color: var(--ks-gold-hairline);
+  }
+  input[type="checkbox"]:checked {
+    background-color: var(--ks-kinpaku);
+    border-color: var(--ks-kinpaku);
+  }
+  input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 2px;
+    width: 5px;
+    height: 9px;
+    border: solid var(--ks-on-gold);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  input[type="checkbox"]:focus-visible {
+    outline: 2px solid var(--ks-kinpaku);
+    outline-offset: 2px;
+  }
+
+  /* Tactile Urushi Switches (.ks-toggle and .ks-switch) */
+  .ks-toggle, .ks-switch {
     position: relative;
     display: inline-block;
     width: 44px;
     height: 24px;
     flex-shrink: 0;
+    cursor: pointer;
+    vertical-align: middle;
   }
-  .ks-toggle input { opacity: 0; width: 0; height: 0; }
-  .ks-toggle-track {
+  .ks-toggle input, .ks-switch input {
+    opacity: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+    position: absolute !important;
+    margin: 0 !important;
+    pointer-events: none;
+  }
+  .ks-toggle-track, .ks-slider {
     position: absolute;
     cursor: pointer;
     inset: 0;
@@ -548,7 +607,8 @@ export const impeccableCss = `
     border-radius: var(--ks-radius-pill);
     transition: background-color var(--ks-quick) var(--ks-ease), border-color var(--ks-quick) var(--ks-ease);
   }
-  .ks-toggle-knob {
+  .ks-toggle-knob, .ks-slider::before {
+    content: '';
     position: absolute;
     height: 16px;
     width: 16px;
@@ -558,11 +618,16 @@ export const impeccableCss = `
     border-radius: 50%;
     transition: transform 0.2s var(--ks-ease), background-color 0.2s var(--ks-ease);
   }
-  .ks-toggle input:checked + .ks-toggle-track {
+  .ks-toggle:hover .ks-toggle-track, .ks-switch:hover .ks-slider {
+    border-color: var(--ks-gold-hairline);
+  }
+  .ks-toggle input:checked + .ks-toggle-track,
+  .ks-switch input:checked + .ks-slider {
     background: oklch(70% 0.12 188 / 0.22);
     border-color: var(--ks-patina);
   }
-  .ks-toggle input:checked + .ks-toggle-track .ks-toggle-knob {
+  .ks-toggle input:checked + .ks-toggle-track .ks-toggle-knob,
+  .ks-switch input:checked + .ks-slider::before {
     transform: translateX(20px);
     background: var(--ks-patina);
     box-shadow: 0 0 6px var(--ks-patina);

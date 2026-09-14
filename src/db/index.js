@@ -18,6 +18,8 @@ export * from './timerRepo.js';
 export * from './raidRepo.js';
 export * from './shoutoutRepo.js';
 export * from './autoShoutoutRepo.js';
+export * from './alertRepo.js';
+export * from './redemptionRepo.js';
 export * from './sessionRepo.js';
 
 import { getBotAccount, setBotAccount } from './botRepo.js';

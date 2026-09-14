@@ -1,5 +1,6 @@
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { clearDatabase, cleanupTestDb } from './setup.js';
 import { createServer } from '../src/server.js';
 import {
@@ -549,6 +550,16 @@ describe('Server HTTP Routes & Clean URL Flow', () => {
     assert.ok(html.includes('ks-sidebar-mobile-bar'));
     assert.ok(html.includes('ksSidebarMobileToggle'));
     assert.ok(html.includes('fuxy_dashboard_scroll'));
+
+    // Assert all rendered inline <script> tags parse with 100% valid JavaScript syntax
+    const scriptRegex = /<script>([\s\S]*?)<\/script>/gi;
+    let match;
+    let scriptCount = 0;
+    while ((match = scriptRegex.exec(html)) !== null) {
+      scriptCount++;
+      assert.doesNotThrow(() => new vm.Script(match[1]), `Inline script ${scriptCount} has invalid syntax`);
+    }
+    assert.ok(scriptCount > 0);
   });
 
   it('should deliver mobile-optimized viewport, overflow containment, and responsive styling', async () => {
@@ -911,5 +922,188 @@ describe('Server HTTP Routes & Clean URL Flow', () => {
     assert.equal(deleteRes.status, 403);
     assert.ok(getChannel('8881')); // Victim must still exist!
   });
+
+  it('should render Stream Alerts and Channel Points navigation and tabs on /dashboard', async () => {
+    upsertChannel({
+      id: '7720',
+      login: 'streamerevents',
+      displayName: 'StreamerEvents',
+    });
+    const sessionToken = createSession({
+      userId: '7720',
+      login: 'streamerevents',
+      displayName: 'StreamerEvents',
+    });
+
+    const res = await fetch(`${baseUrl}/dashboard`, {
+      headers: { Cookie: `session_token=${sessionToken}` },
+    });
+    assert.equal(res.status, 200);
+    const html = await res.text();
+
+    // Verify navigation sidebar
+    assert.ok(html.includes('Events &amp; Rewards') || html.includes('Events & Rewards'));
+    assert.ok(html.includes('data-tab="alerts"'));
+    assert.ok(html.includes('data-tab="rewards"'));
+    assert.ok(html.includes('Stream Alerts'));
+    assert.ok(html.includes('Channel Points'));
+
+    // Verify tab contents
+    assert.ok(html.includes('id="tab-alerts"'));
+    assert.ok(html.includes('id="tab-rewards"'));
+    assert.ok(html.includes('Follower Chat Alerts'));
+    assert.ok(html.includes('Subscriber &amp; Gift Chat Alerts') || html.includes('Subscriber & Gift Chat Alerts'));
+    assert.ok(html.includes('Channel Point Reward Triggers'));
+  });
+
+  it('should save stream alert settings via POST /api/alerts/settings and redirect to /dashboard', async () => {
+    upsertChannel({ id: '7721', login: 'alertssavechan', displayName: 'AlertsSaveChan' });
+    const sessionToken = createSession({
+      userId: '7721',
+      login: 'alertssavechan',
+      displayName: 'AlertsSaveChan',
+    });
+
+    const res = await fetch(`${baseUrl}/api/alerts/settings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '7721',
+        followEnabled: 'on',
+        followMessage: 'Awesome follow @{user}! Welcome to {channel}!',
+        subEnabled: 'on',
+        subMessage: 'Hype sub @{user} at {tier}!',
+        resubMessage: 'Great to see @{user} back for {months} months!',
+        giftSubMessage: 'Huge thanks to @{user} for gifting {tier} to @{recipient}!',
+        communityGiftMessage: 'MONSTER {count} subs bomb from @{user}!',
+      }).toString(),
+      redirect: 'manual',
+    });
+
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get('location'), '/dashboard');
+
+    const updated = getChannel('7721');
+    assert.equal(updated.streamAlerts.followEnabled, true);
+    assert.equal(updated.streamAlerts.followMessage, 'Awesome follow @{user}! Welcome to {channel}!');
+    assert.equal(updated.streamAlerts.subMessage, 'Hype sub @{user} at {tier}!');
+    assert.equal(updated.streamAlerts.communityGiftMessage, 'MONSTER {count} subs bomb from @{user}!');
+  });
+
+  it('should dispatch test stream alert via POST /api/alerts/test and redirect to /dashboard', async () => {
+    upsertChannel({ id: '7722', login: 'alertstestchan', displayName: 'AlertsTestChan' });
+    const sessionToken = createSession({
+      userId: '7722',
+      login: 'alertstestchan',
+      displayName: 'AlertsTestChan',
+    });
+
+    const res = await fetch(`${baseUrl}/api/alerts/test`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '7722',
+        type: 'follow',
+      }).toString(),
+      redirect: 'manual',
+    });
+
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get('location'), '/dashboard');
+  });
+
+  it('should manage channel point triggers (save, toggle, test, delete) via /api/redemptions/*', async () => {
+    upsertChannel({ id: '7723', login: 'pointmanagechan', displayName: 'PointManageChan' });
+    const sessionToken = createSession({
+      userId: '7723',
+      login: 'pointmanagechan',
+      displayName: 'PointManageChan',
+    });
+
+    // 1. Create Trigger
+    const createRes = await fetch(`${baseUrl}/api/redemptions/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '7723',
+        rewardTitle: 'Hydrate Reminder',
+        cooldownSeconds: '15',
+        responseMessage: '💧 Time for water @{channel}! Thanks @{user}!',
+      }).toString(),
+      redirect: 'manual',
+    });
+
+    assert.equal(createRes.status, 302);
+    assert.equal(createRes.headers.get('location'), '/dashboard');
+
+    const ch = getChannel('7723');
+    assert.equal(ch.channelPointTriggers.length, 1);
+    const trigger = ch.channelPointTriggers[0];
+    assert.equal(trigger.rewardTitle, 'Hydrate Reminder');
+    assert.equal(trigger.cooldownSeconds, 15);
+    assert.equal(trigger.enabled, true);
+
+    // 2. Toggle Trigger
+    const toggleRes = await fetch(`${baseUrl}/api/redemptions/toggle`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '7723',
+        id: trigger.id,
+        enabled: 'false',
+      }).toString(),
+      redirect: 'manual',
+    });
+    assert.equal(toggleRes.status, 302);
+
+    const toggledCh = getChannel('7723');
+    assert.equal(toggledCh.channelPointTriggers[0].enabled, false);
+
+    // 3. Test Trigger
+    const testRes = await fetch(`${baseUrl}/api/redemptions/test`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '7723',
+        id: trigger.id,
+      }).toString(),
+      redirect: 'manual',
+    });
+    assert.equal(testRes.status, 302);
+
+    // 4. Delete Trigger
+    const deleteRes = await fetch(`${baseUrl}/api/redemptions/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({
+        channelId: '7723',
+        id: trigger.id,
+      }).toString(),
+      redirect: 'manual',
+    });
+    assert.equal(deleteRes.status, 302);
+
+    const deletedCh = getChannel('7723');
+    assert.equal(deletedCh.channelPointTriggers.length, 0);
+  });
 });
+
 

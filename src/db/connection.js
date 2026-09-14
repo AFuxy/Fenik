@@ -134,6 +134,34 @@ export function initDb() {
 
     CREATE INDEX IF NOT EXISTS idx_auto_shoutouts_channel ON auto_shoutouts(channel_id);
 
+    CREATE TABLE IF NOT EXISTS stream_alert_settings (
+      channel_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
+      follow_enabled INTEGER NOT NULL DEFAULT 1,
+      follow_message TEXT NOT NULL DEFAULT 'Thank you for following, @{user}! Welcome to the stream! 💜',
+      sub_enabled INTEGER NOT NULL DEFAULT 1,
+      sub_message TEXT NOT NULL DEFAULT 'Thank you @{user} for subscribing at {tier}! Welcome to the family! 🎉',
+      resub_message TEXT NOT NULL DEFAULT 'Welcome back @{user} for resubscribing at {tier} for {months} months! {streak} {message}',
+      gift_sub_message TEXT NOT NULL DEFAULT 'Thank you @{user} for gifting a {tier} sub! 🎁',
+      community_gift_message TEXT NOT NULL DEFAULT 'WOW! Huge thanks to @{user} for gifting {count} subs to the community! 🌟',
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS channel_point_triggers (
+      id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      reward_title TEXT NOT NULL,
+      reward_id TEXT,
+      response_message TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      counter INTEGER NOT NULL DEFAULT 0,
+      cooldown_seconds INTEGER NOT NULL DEFAULT 5,
+      last_triggered_at INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_channel_point_triggers_channel ON channel_point_triggers(channel_id);
+
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,

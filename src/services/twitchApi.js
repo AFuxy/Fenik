@@ -455,8 +455,8 @@ export async function timeoutUser({ broadcasterId, moderatorId, userId, duration
 /**
  * Create an EventSub subscription (WebSocket)
  */
-export async function createEventSubSubscription({ type, version = '1', condition, transport }) {
-  const token = await getValidBotToken();
+export async function createEventSubSubscription({ type, version = '1', condition, transport, token = null }) {
+  const authToken = token || await getValidBotToken();
 
   const payload = {
     type,
@@ -469,7 +469,7 @@ export async function createEventSubSubscription({ type, version = '1', conditio
     method: 'POST',
     headers: {
       'Client-Id': config.clientId,
-      'Authorization': `Bearer ${token}`,
+      'Authorization': `Bearer ${authToken}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),

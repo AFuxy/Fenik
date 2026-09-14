@@ -45,8 +45,22 @@ export function renderDashboardView({
   const activeTimerCount = timers.filter((t) => t.enabled).length;
 
   const chatGroupTabs = ['commands', 'builtins', 'timers', 'raids', 'shoutouts'];
+  const eventsGroupTabs = ['alerts', 'rewards'];
   const safetyGroupTabs = ['moderation'];
   const settingsGroupTabs = ['prefix', 'managers', 'test'];
+
+  const streamAlerts = channel.streamAlerts || {
+    followEnabled: true,
+    followMessage: 'Thank you for following, @{user}! Welcome to the stream! 💜',
+    subEnabled: true,
+    subMessage: 'Thank you @{user} for subscribing at {tier}! Welcome to the family! 🎉',
+    resubMessage: 'Welcome back @{user} for resubscribing at {tier} for {months} months! {streak} {message}',
+    giftSubMessage: 'Thank you @{user} for gifting a {tier} sub! 🎁',
+    communityGiftMessage: 'WOW! Huge thanks to @{user} for gifting {count} subs to the community! 🌟',
+  };
+
+  const channelPointTriggers = channel.channelPointTriggers || [];
+  const activeRewardCount = channelPointTriggers.filter((t) => t.enabled).length;
 
   const raidSettings = channel.raidSettings || {
     enabled: true,
@@ -86,6 +100,8 @@ export function renderDashboardView({
     timers: 'Chat Timers',
     raids: 'Raid Welcomes',
     shoutouts: 'Shoutouts',
+    alerts: 'Stream Alerts',
+    rewards: 'Channel Points',
     prefix: 'Command Prefix',
     moderation: 'Auto-Moderation',
     managers: 'Managers & Access',
@@ -95,6 +111,7 @@ export function renderDashboardView({
 
   // Keep groups expanded by default so dropdowns never retract unexpectedly on refresh
   const isChatOpen = true;
+  const isEventsOpen = true;
   const isSafetyOpen = true;
   const isSettingsOpen = true;
 
@@ -277,6 +294,45 @@ export function renderDashboardView({
                   <span class="ks-sidebar-item-label">Shoutouts</span>
                   <span class="ks-tag ${shoutoutSettings.enabled ? 'ks-tag-gold' : ''}" style="font-size: 0.68rem; padding: 1px 6px; margin-left: auto;">
                     ${shoutoutSettings.enabled ? (autoShoutouts.length > 0 ? `${autoShoutouts.length} auto` : 'On') : 'Off'}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Events & Rewards Group (Collapsible Dropdown) -->
+            <div class="ks-sidebar-group ${isEventsOpen ? '' : 'is-collapsed'}" data-group="events">
+              <button type="button" class="ks-sidebar-group-header" aria-expanded="${isEventsOpen ? 'true' : 'false'}">
+                <div class="ks-sidebar-group-title">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                  </svg>
+                  <span>Events & Rewards</span>
+                </div>
+                <svg class="ks-sidebar-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+
+              <div class="ks-sidebar-items">
+                <button type="button" data-tab="alerts" class="ks-sidebar-item ${activeTab === 'alerts' ? 'active' : ''}">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                  </svg>
+                  <span class="ks-sidebar-item-label">Stream Alerts</span>
+                  <span class="ks-tag ${(streamAlerts.followEnabled || streamAlerts.subEnabled) ? 'ks-tag-gold' : ''}" style="font-size: 0.68rem; padding: 1px 6px; margin-left: auto;">
+                    ${(streamAlerts.followEnabled || streamAlerts.subEnabled) ? 'On' : 'Off'}
+                  </span>
+                </button>
+
+                <button type="button" data-tab="rewards" class="ks-sidebar-item ${activeTab === 'rewards' ? 'active' : ''}">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7v10M9 10h6"></path>
+                  </svg>
+                  <span class="ks-sidebar-item-label">Channel Points</span>
+                  <span class="ks-tag ${activeRewardCount > 0 ? 'ks-tag-gold' : ''}" style="font-size: 0.68rem; padding: 1px 6px; margin-left: auto;">
+                    ${activeRewardCount}/${channelPointTriggers.length}
                   </span>
                 </button>
               </div>
@@ -1761,6 +1817,420 @@ export function renderDashboardView({
         </section>
       </div>
 
+      <!-- 6. STREAM ALERTS TAB -->
+      <div id="tab-alerts" class="ks-tab-content ${activeTab === 'alerts' ? 'active' : ''}">
+        <section class="ks-card" style="margin-bottom: 24px;">
+          <div class="ks-card-header">
+            <div>
+              <h2 class="ks-card-title">Stream Events & Chat Alerts</h2>
+              <p class="ks-card-desc">
+                Automatically welcome new followers and thank subscribers directly in your Twitch chat with real-time EventSub alerts.
+              </p>
+            </div>
+          </div>
+
+          <form action="/api/alerts/settings" method="POST">
+            <input type="hidden" name="channelId" value="${channel.id}">
+
+            <!-- 1. Follower Alerts Section -->
+            <div style="background: var(--ks-raised-lacquer); border: 1px solid var(--ks-rule); border-radius: var(--ks-radius-md); padding: 18px; margin-bottom: 20px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <div style="width: 32px; height: 32px; border-radius: var(--ks-radius-xs); background: var(--ks-lacquer-deep); display: flex; align-items: center; justify-content: center; border: 1px solid var(--ks-rule);">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ks-kinpaku);">
+                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 style="font-size: 1.05rem; font-weight: 600; color: var(--ks-champagne); margin: 0;">💜 Follower Chat Alerts</h3>
+                    <p style="font-size: 0.8rem; color: var(--ks-text-muted); margin: 0;">Announce new followers when someone hits the follow button on your stream.</p>
+                  </div>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <label class="ks-switch">
+                    <input type="checkbox" name="followEnabled" ${streamAlerts.followEnabled ? 'checked' : ''}>
+                    <span class="ks-slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="ks-form-group" style="margin-bottom: 12px;">
+                <label class="ks-label" for="alert-follow-message">Follower Welcome Message</label>
+                <textarea 
+                  id="alert-follow-message" 
+                  name="followMessage" 
+                  class="ks-textarea" 
+                  rows="2"
+                  placeholder="Thank you for following, @{user}! Welcome to the stream! 💜"
+                >${escapeAttr(streamAlerts.followMessage)}</textarea>
+              </div>
+
+              <!-- Pill Buttons for Follower Message -->
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                  <span style="font-size: 0.75rem; color: var(--ks-text-faint); margin-right: 4px;">Insert tag:</span>
+                  <button type="button" class="ks-var-pill" data-target-input="alert-follow-message" data-insert="{user}">{user}</button>
+                  <button type="button" class="ks-var-pill" data-target-input="alert-follow-message" data-insert="{channel}">{channel}</button>
+                </div>
+
+                <!-- Test Follower Alert -->
+                <button 
+                  type="submit" 
+                  formaction="/api/alerts/test" 
+                  formmethod="POST" 
+                  name="type" 
+                  value="follow" 
+                  class="ks-button ks-button-secondary" 
+                  style="min-height: 28px; padding: 0 12px; font-size: 0.8rem;"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                  </svg>
+                  Test Follow Alert
+                </button>
+              </div>
+            </div>
+
+            <!-- 2. Subscriber Alerts Section -->
+            <div style="background: var(--ks-raised-lacquer); border: 1px solid var(--ks-rule); border-radius: var(--ks-radius-md); padding: 18px; margin-bottom: 24px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <div style="width: 32px; height: 32px; border-radius: var(--ks-radius-xs); background: var(--ks-lacquer-deep); display: flex; align-items: center; justify-content: center; border: 1px solid var(--ks-rule);">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ks-kinpaku);">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 style="font-size: 1.05rem; font-weight: 600; color: var(--ks-champagne); margin: 0;">🎉 Subscriber & Gift Chat Alerts</h3>
+                    <p style="font-size: 0.8rem; color: var(--ks-text-muted); margin: 0;">Celebrate new subscribers, resub streaks, individual gift subs, and community sub bombs.</p>
+                  </div>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <label class="ks-switch">
+                    <input type="checkbox" name="subEnabled" ${streamAlerts.subEnabled ? 'checked' : ''}>
+                    <span class="ks-slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- 2a. New Subscriber Message -->
+              <div class="ks-form-group" style="margin-bottom: 14px;">
+                <label class="ks-label" for="alert-sub-message">New Subscriber Message</label>
+                <textarea 
+                  id="alert-sub-message" 
+                  name="subMessage" 
+                  class="ks-textarea" 
+                  rows="2"
+                  placeholder="Thank you @{user} for subscribing at {tier}! Welcome to the family! 🎉"
+                >${escapeAttr(streamAlerts.subMessage)}</textarea>
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 6px;">
+                  <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    <span style="font-size: 0.75rem; color: var(--ks-text-faint);">Insert tag:</span>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-sub-message" data-insert="{user}">{user}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-sub-message" data-insert="{tier}">{tier}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-sub-message" data-insert="{channel}">{channel}</button>
+                  </div>
+                  <button type="submit" formaction="/api/alerts/test" formmethod="POST" name="type" value="sub" class="ks-button ks-button-secondary" style="min-height: 26px; padding: 0 10px; font-size: 0.78rem;">Test Sub</button>
+                </div>
+              </div>
+
+              <!-- 2b. Resubscriber Message -->
+              <div class="ks-form-group" style="margin-bottom: 14px;">
+                <label class="ks-label" for="alert-resub-message">Resubscriber & Streak Message</label>
+                <textarea 
+                  id="alert-resub-message" 
+                  name="resubMessage" 
+                  class="ks-textarea" 
+                  rows="2"
+                  placeholder="Welcome back @{user} for resubscribing at {tier} for {months} months! {streak} {message}"
+                >${escapeAttr(streamAlerts.resubMessage)}</textarea>
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 6px;">
+                  <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    <span style="font-size: 0.75rem; color: var(--ks-text-faint);">Insert tag:</span>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-resub-message" data-insert="{user}">{user}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-resub-message" data-insert="{tier}">{tier}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-resub-message" data-insert="{months}">{months}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-resub-message" data-insert="{streak}">{streak}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-resub-message" data-insert="{message}">{message}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-resub-message" data-insert="{channel}">{channel}</button>
+                  </div>
+                  <button type="submit" formaction="/api/alerts/test" formmethod="POST" name="type" value="resub" class="ks-button ks-button-secondary" style="min-height: 26px; padding: 0 10px; font-size: 0.78rem;">Test Resub</button>
+                </div>
+              </div>
+
+              <!-- 2c. Single Gift Sub Message -->
+              <div class="ks-form-group" style="margin-bottom: 14px;">
+                <label class="ks-label" for="alert-gift-message">Individual Gift Sub Message</label>
+                <textarea 
+                  id="alert-gift-message" 
+                  name="giftSubMessage" 
+                  class="ks-textarea" 
+                  rows="2"
+                  placeholder="Thank you @{user} for gifting a {tier} sub to @{recipient}! 🎁"
+                >${escapeAttr(streamAlerts.giftSubMessage)}</textarea>
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 6px;">
+                  <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    <span style="font-size: 0.75rem; color: var(--ks-text-faint);">Insert tag:</span>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-gift-message" data-insert="{user}">{user}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-gift-message" data-insert="{tier}">{tier}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-gift-message" data-insert="{recipient}">{recipient}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-gift-message" data-insert="{channel}">{channel}</button>
+                  </div>
+                  <button type="submit" formaction="/api/alerts/test" formmethod="POST" name="type" value="gift" class="ks-button ks-button-secondary" style="min-height: 26px; padding: 0 10px; font-size: 0.78rem;">Test Gift</button>
+                </div>
+              </div>
+
+              <!-- 2d. Community Sub Bomb Message -->
+              <div class="ks-form-group" style="margin-bottom: 14px;">
+                <label class="ks-label" for="alert-community-message">Community Sub Bomb Message (Multiple Gifts)</label>
+                <textarea 
+                  id="alert-community-message" 
+                  name="communityGiftMessage" 
+                  class="ks-textarea" 
+                  rows="2"
+                  placeholder="WOW! Huge thanks to @{user} for gifting {count} subs to the community! 🌟"
+                >${escapeAttr(streamAlerts.communityGiftMessage)}</textarea>
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 6px;">
+                  <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    <span style="font-size: 0.75rem; color: var(--ks-text-faint);">Insert tag:</span>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-community-message" data-insert="{user}">{user}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-community-message" data-insert="{count}">{count}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-community-message" data-insert="{tier}">{tier}</button>
+                    <button type="button" class="ks-var-pill" data-target-input="alert-community-message" data-insert="{channel}">{channel}</button>
+                  </div>
+                  <button type="submit" formaction="/api/alerts/test" formmethod="POST" name="type" value="community_gift" class="ks-button ks-button-secondary" style="min-height: 26px; padding: 0 10px; font-size: 0.78rem;">Test Sub Bomb</button>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Save Alert Settings Button -->
+            <button type="submit" class="ks-button ks-button-primary">
+              <span>Save Alert Settings</span>
+              <span class="ks-button-arrow">
+                <svg viewBox="0 0 14 8" fill="none"><path d="M1 4h12m0 0L9.5 1M13 4L9.5 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </button>
+          </form>
+        </section>
+      </div>
+
+      <!-- 7. CHANNEL POINT REWARDS TAB -->
+      <div id="tab-rewards" class="ks-tab-content ${activeTab === 'rewards' ? 'active' : ''}">
+        <section class="ks-card" style="margin-bottom: 24px;">
+          <div class="ks-card-header" style="margin-bottom: 0;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <h2 class="ks-card-title" style="margin: 0;">Channel Point Reward Triggers</h2>
+                <span class="ks-tag ks-tag-gold" style="font-size: 0.72rem;">${channelPointTriggers.length} Triggers</span>
+              </div>
+              <p class="ks-card-desc">
+                Trigger automated bot chat responses when viewers redeem custom channel points rewards on your stream.
+              </p>
+            </div>
+            <button type="button" id="openAddRewardBtn" class="ks-button ks-button-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span>Add Reward Trigger</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- Create / Edit Reward Trigger Form Card (Hidden by default) -->
+        <div id="addRewardCard" class="ks-card" style="display: none; border-color: var(--ks-gold-hairline); margin-bottom: 24px;">
+          <div class="ks-card-header">
+            <div>
+              <h3 class="ks-card-title" id="rewardFormTitle">New Reward Trigger</h3>
+              <p class="ks-card-desc" id="rewardFormDesc">Link a Twitch channel points reward to an automated bot chat response.</p>
+            </div>
+          </div>
+
+          <form action="/api/redemptions/save" method="POST">
+            <input type="hidden" name="channelId" value="${channel.id}">
+            <input type="hidden" name="id" id="reward-id" value="">
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 16px;">
+              <div class="ks-form-group" style="margin: 0;">
+                <label class="ks-label" for="reward-title">Twitch Reward Title <span style="color: var(--ks-vermilion);">*</span></label>
+                <input 
+                  type="text" 
+                  id="reward-title" 
+                  name="rewardTitle" 
+                  class="ks-input-text" 
+                  placeholder="e.g. Hydrate, Posture Check, Ask the Bot" 
+                  required 
+                />
+                <span style="font-size: 0.76rem; color: var(--ks-text-muted); margin-top: 4px; display: block;">
+                  Must match the exact title of your reward in Twitch Creator Dashboard.
+                </span>
+              </div>
+
+              <div class="ks-form-group" style="margin: 0;">
+                <label class="ks-label" for="reward-cooldown">Cooldown (Seconds)</label>
+                <input 
+                  type="number" 
+                  id="reward-cooldown" 
+                  name="cooldownSeconds" 
+                  class="ks-input-text" 
+                  min="0" 
+                  max="3600" 
+                  value="5" 
+                />
+                <span style="font-size: 0.76rem; color: var(--ks-text-muted); margin-top: 4px; display: block;">
+                  Prevents chat flooding if multiple viewers redeem rapidly.
+                </span>
+              </div>
+            </div>
+
+            <div class="ks-form-group" style="margin-bottom: 14px;">
+              <label class="ks-label" for="reward-response">Bot Chat Response <span style="color: var(--ks-vermilion);">*</span></label>
+              <textarea 
+                id="reward-response" 
+                name="responseMessage" 
+                class="ks-textarea" 
+                rows="3" 
+                placeholder="🥤 Drink some water @{channel}! Reminder courtesy of @{user}! (Total drinks: {count})" 
+                required
+              ></textarea>
+              <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px;">
+                <span style="font-size: 0.75rem; color: var(--ks-text-faint); margin-right: 4px;">Insert tag:</span>
+                <button type="button" class="ks-var-pill" data-target-input="reward-response" data-insert="{user}">{user}</button>
+                <button type="button" class="ks-var-pill" data-target-input="reward-response" data-insert="{reward}">{reward}</button>
+                <button type="button" class="ks-var-pill" data-target-input="reward-response" data-insert="{input}">{input}</button>
+                <button type="button" class="ks-var-pill" data-target-input="reward-response" data-insert="{channel}">{channel}</button>
+                <button type="button" class="ks-var-pill" data-target-input="reward-response" data-insert="{count}">{count}</button>
+                <button type="button" class="ks-var-pill" data-target-input="reward-response" data-insert="{uptime}">{uptime}</button>
+                <button type="button" class="ks-var-pill" data-target-input="reward-response" data-insert="{game}">{game}</button>
+                <button type="button" class="ks-var-pill" data-target-input="reward-response" data-insert="{title}">{title}</button>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 12px; margin-top: 18px;">
+              <button type="submit" class="ks-button ks-button-primary">
+                <span id="reward-submit-label">Save Trigger</span>
+              </button>
+              <button type="button" id="cancelAddRewardBtn" class="ks-button ks-button-secondary">
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Triggers List Table Card -->
+        <section class="ks-card">
+          <div class="ks-card-header">
+            <div>
+              <h3 class="ks-card-title">Configured Reward Triggers</h3>
+              <p class="ks-card-desc">Active rewards will immediately trigger their response when redeemed in chat.</p>
+            </div>
+          </div>
+
+          ${channelPointTriggers.length === 0 ? `
+            <div style="text-align: center; padding: 48px 16px; background: var(--ks-raised-lacquer); border-radius: var(--ks-radius-md); border: 1px dashed var(--ks-rule);">
+              <div style="width: 48px; height: 48px; margin: 0 auto 12px; border-radius: var(--ks-radius-sm); background: var(--ks-lacquer-deep); display: flex; align-items: center; justify-content: center; border: 1px solid var(--ks-rule);">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ks-kinpaku);">
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <path d="M12 7v10M9 10h6"></path>
+                </svg>
+              </div>
+              <h4 style="font-size: 1.05rem; font-weight: 600; color: var(--ks-champagne); margin-bottom: 4px;">No Reward Triggers Configured</h4>
+              <p style="font-size: 0.84rem; color: var(--ks-text-muted); max-width: 420px; margin: 0 auto 16px;">
+                Create your first trigger above to make your Twitch channel points interactive with automated bot messages!
+              </p>
+              <button type="button" onclick="document.getElementById('openAddRewardBtn').click()" class="ks-button ks-button-secondary">
+                Add Your First Trigger
+              </button>
+            </div>
+          ` : `
+            <div style="overflow-x: auto;">
+              <table class="ks-table">
+                <thead>
+                  <tr>
+                    <th>Twitch Reward</th>
+                    <th>Bot Response Message</th>
+                    <th>Cooldown</th>
+                    <th>Redemptions</th>
+                    <th>Status</th>
+                    <th style="text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${channelPointTriggers.map((trig) => `
+                    <tr>
+                      <td style="font-weight: 600; color: var(--ks-champagne); white-space: nowrap;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ks-kinpaku);">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 7v10M9 10h6"></path>
+                          </svg>
+                          <span>${escapeAttr(trig.rewardTitle)}</span>
+                        </div>
+                      </td>
+                      <td style="max-width: 320px;">
+                        <div style="font-size: 0.84rem; color: var(--ks-text-warm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                          ${escapeAttr(trig.responseMessage)}
+                        </div>
+                      </td>
+                      <td>
+                        <span class="ks-tag" style="font-family: var(--ks-mono); font-size: 0.74rem;">${trig.cooldownSeconds}s</span>
+                      </td>
+                      <td>
+                        <span class="ks-tag ks-tag-gold" style="font-family: var(--ks-mono); font-size: 0.74rem;">${trig.counter}</span>
+                      </td>
+                      <td>
+                        <form action="/api/redemptions/toggle" method="POST" style="margin: 0; display: inline-block;">
+                          <input type="hidden" name="channelId" value="${channel.id}">
+                          <input type="hidden" name="id" value="${trig.id}">
+                          <label class="ks-switch" style="vertical-align: middle;">
+                            <input type="checkbox" name="enabled" ${trig.enabled ? 'checked' : ''} onchange="this.form.submit()">
+                            <span class="ks-slider"></span>
+                          </label>
+                        </form>
+                      </td>
+                      <td style="text-align: right; white-space: nowrap;">
+                        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px;">
+                          <form action="/api/redemptions/test" method="POST" style="display: inline; margin: 0;">
+                            <input type="hidden" name="channelId" value="${channel.id}">
+                            <input type="hidden" name="id" value="${trig.id}">
+                            <button type="submit" class="ks-button ks-button-secondary" style="min-height: 26px; padding: 0 8px; font-size: 0.76rem;" title="Test in Chat">
+                              Test
+                            </button>
+                          </form>
+
+                          <button 
+                            type="button" 
+                            class="ks-button ks-button-secondary edit-reward-btn" 
+                            data-reward-id="${escapeAttr(trig.id)}"
+                            data-reward-title="${escapeAttr(trig.rewardTitle)}"
+                            data-reward-response="${escapeAttr(trig.responseMessage)}"
+                            data-reward-cooldown="${trig.cooldownSeconds}"
+                            style="min-height: 26px; padding: 0 8px; font-size: 0.76rem;"
+                          >
+                            Edit
+                          </button>
+
+                          <form action="/api/redemptions/delete" method="POST" style="display: inline; margin: 0;" onsubmit="return confirm('Delete trigger for &quot;${escapeAttr(trig.rewardTitle)}&quot;?');">
+                            <input type="hidden" name="channelId" value="${channel.id}">
+                            <input type="hidden" name="id" value="${trig.id}">
+                            <button type="submit" class="ks-button ks-button-danger" style="min-height: 26px; padding: 0 8px; font-size: 0.76rem;">
+                              Delete
+                            </button>
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </section>
+      </div>
+
         </main>
       </div>
     </div>
@@ -1828,11 +2298,14 @@ export function renderDashboardView({
           var mobileBadge = document.getElementById('ksSidebarActiveBadge');
           if (mobileBadge) {
             var titles = {
+              overview: 'Getting Started & Setup',
               commands: 'Custom Commands',
               builtins: 'Built-in Commands',
               timers: 'Chat Timers',
               raids: 'Raid Welcomes',
               shoutouts: 'Shoutouts',
+              alerts: 'Stream Alerts',
+              rewards: 'Channel Points',
               prefix: 'Command Prefix',
               moderation: 'Auto-Moderation',
               managers: 'Managers & Access',
@@ -2148,6 +2621,85 @@ export function renderDashboardView({
             if (idInput) idInput.value = '';
             if (nameInput) nameInput.value = '';
             if (messageInput) messageInput.value = '';
+            return;
+          }
+
+          var addRewardBtn = e.target.closest('#openAddRewardBtn');
+          if (addRewardBtn) {
+            e.preventDefault();
+            var card = document.getElementById('addRewardCard');
+            var title = document.getElementById('rewardFormTitle');
+            var desc = document.getElementById('rewardFormDesc');
+            var submitLabel = document.getElementById('reward-submit-label');
+
+            if (title) title.textContent = 'New Reward Trigger';
+            if (desc) desc.textContent = 'Link a Twitch channel points reward to an automated bot chat response.';
+            if (submitLabel) submitLabel.textContent = 'Save Trigger';
+
+            var idInput = document.getElementById('reward-id');
+            var titleInput = document.getElementById('reward-title');
+            var respInput = document.getElementById('reward-response');
+            var cdInput = document.getElementById('reward-cooldown');
+
+            if (idInput) idInput.value = '';
+            if (titleInput) titleInput.value = '';
+            if (respInput) respInput.value = '';
+            if (cdInput) cdInput.value = '5';
+
+            if (card) {
+              card.style.display = 'block';
+              card.scrollIntoView({ behavior: 'smooth' });
+            }
+            if (titleInput) titleInput.focus();
+            return;
+          }
+
+          var editRewardBtn = e.target.closest('.edit-reward-btn');
+          if (editRewardBtn) {
+            e.preventDefault();
+            var card = document.getElementById('addRewardCard');
+            var id = editRewardBtn.getAttribute('data-reward-id');
+            var rTitle = editRewardBtn.getAttribute('data-reward-title');
+            var rResp = editRewardBtn.getAttribute('data-reward-response');
+            var rCd = editRewardBtn.getAttribute('data-reward-cooldown') || '5';
+
+            var formTitle = document.getElementById('rewardFormTitle');
+            var formDesc = document.getElementById('rewardFormDesc');
+            var submitLabel = document.getElementById('reward-submit-label');
+
+            if (formTitle) formTitle.textContent = 'Edit Trigger: ' + rTitle;
+            if (formDesc) formDesc.textContent = 'Modify reward title, automated chat response, or cooldown.';
+            if (submitLabel) submitLabel.textContent = 'Update Trigger';
+
+            var idInput = document.getElementById('reward-id');
+            var titleInput = document.getElementById('reward-title');
+            var respInput = document.getElementById('reward-response');
+            var cdInput = document.getElementById('reward-cooldown');
+
+            if (idInput) idInput.value = id;
+            if (titleInput) titleInput.value = rTitle;
+            if (respInput) respInput.value = rResp;
+            if (cdInput) cdInput.value = rCd;
+
+            if (card) {
+              card.style.display = 'block';
+              card.scrollIntoView({ behavior: 'smooth' });
+            }
+            if (respInput) respInput.focus();
+            return;
+          }
+
+          var cancelRewardBtn = e.target.closest('#cancelAddRewardBtn');
+          if (cancelRewardBtn) {
+            e.preventDefault();
+            var card = document.getElementById('addRewardCard');
+            if (card) card.style.display = 'none';
+            var idInput = document.getElementById('reward-id');
+            var titleInput = document.getElementById('reward-title');
+            var respInput = document.getElementById('reward-response');
+            if (idInput) idInput.value = '';
+            if (titleInput) titleInput.value = '';
+            if (respInput) respInput.value = '';
             return;
           }
         });
