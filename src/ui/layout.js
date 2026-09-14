@@ -39,7 +39,7 @@ export function renderLayout({
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
-  <title>${title ? `${title} | ` : ''}${config.botName}</title>
+  <title>${title ? `${title} | ` : ''}${config.platformName || 'Fenik'}</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="alternate icon" href="/favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -54,13 +54,13 @@ export function renderLayout({
   <!-- Navigation -->
   <header class="ks-nav">
     <div class="ks-nav-inner">
-      <a href="/" class="ks-brand" aria-label="${config.botName} home">
+      <a href="/" class="ks-brand" aria-label="${config.platformName || 'Fenik'} home">
         <span class="ks-mark" aria-hidden="true">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
             <path d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H7l-3 3v-3H3a1 1 0 0 1-1-1V3z"/>
           </svg>
         </span>
-        <span class="ks-wordmark">${config.botName}</span>
+        <span class="ks-wordmark">${config.platformName || 'Fenik'}</span>
       </a>
 
       <div class="ks-nav-links">
@@ -156,10 +156,15 @@ export function renderLayout({
   <!-- Footer -->
   <footer class="ks-footer">
     <div class="ks-footer-inner">
-      <div class="ks-wordmark" style="font-size: 1.05rem; color: var(--ks-text-muted);">
-        &copy; ${new Date().getFullYear()} ${config.botName}
+      <div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+        <span class="ks-wordmark" style="font-size: 1.05rem; color: var(--ks-champagne);">${config.platformName || 'Fenik'}</span>
+        <span style="font-size: 0.8rem; color: var(--ks-text-muted); font-family: var(--ks-mono);">&copy; ${new Date().getFullYear()}</span>
+        <a href="https://${config.productionDomain}" target="_blank" rel="noreferrer" class="ks-footer-link" style="color: var(--ks-kinpaku); font-size: 0.82rem; font-family: var(--ks-mono);">${config.productionDomain}</a>
       </div>
-      <div style="display: flex; align-items: center; gap: 5px; color: var(--ks-text-muted);">
+      <div style="display: flex; align-items: center; gap: 6px; color: var(--ks-text-muted); font-size: 0.84rem;">
+        <span>Bot Worker:</span>
+        <span style="color: var(--ks-patina); font-family: var(--ks-mono);">@${config.botName || 'FenikBot'}</span>
+        <span>•</span>
         <span>Crafted with</span>
         <span style="color: #f43f5e;">❤</span>
         <span>by</span>

@@ -23,14 +23,15 @@ const adminUsers = (process.env.ADMIN_USERS || 'afuxy')
   .filter(Boolean);
 
 export const config = {
-  botName: process.env.BOT_NAME || 'Companion',
+  platformName: process.env.PLATFORM_NAME || 'Fenik',
+  botName: process.env.BOT_NAME || 'FenikBot',
   clientId: process.env.TWITCH_CLIENT_ID || '',
   clientSecret: process.env.TWITCH_CLIENT_SECRET || '',
   port,
   baseUrl,
   redirectUri: process.env.REDIRECT_URI || `${baseUrl}/auth/callback`,
   commandPrefix: process.env.COMMAND_PREFIX || '!',
-  productionDomain: 'twitch.afuxy.com',
+  productionDomain: process.env.PRODUCTION_DOMAIN || 'fenik.live',
   sessionSecret: secret,
   encryptionKey,
   dbPath: process.env.DB_PATH || path.join(rootDir, 'data', 'local.db'),

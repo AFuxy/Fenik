@@ -47,6 +47,16 @@ import { formatShoutoutMessage } from '../services/shoutoutService.js';
 import { executeTestAlert } from '../services/alertService.js';
 import { executeTestRedemption } from '../services/redemptionService.js';
 import { getRecentActivities, recordActivity } from '../services/activityService.js';
+import {
+  startStream,
+  stopStream,
+  getStreamStatus,
+  saveUploadedMedia,
+  getFfmpegInfo,
+  recompileVideoLoop,
+} from '../services/streamService.js';
+import { getStreamSettings, updateStreamSettings } from '../db/streamRepo.js';
+import { getBotStreamKey, updateChannelBroadcast, getChannelBroadcastInfo } from '../services/twitchApi.js';
 
 export const apiRouter = Router();
 
@@ -1058,4 +1068,206 @@ apiRouter.post('/admin/channels/delete', requireAuth, async (req, res) => {
 
   return res.redirect('/admin');
 });
+
+// 17. 24/7 Live Stream Showcase Endpoints (Admin Only)
+apiRouter.get('/stream/status', (req, res) => {
+  try {
+    const status = getStreamStatus();
+    res.json({ ok: true, ...status });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+apiRouter.post('/stream/upload', requireAuth, async (req, res) => {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ ok: false, error: 'Administrator privileges required.' });
+  }
+
+  try {
+    const { fileName, fileData } = req.body;
+    if (!fileName || !fileData) {
+      return res.status(400).json({ ok: false, error: 'File name and file data are required.' });
+    }
+
+    const base64Data = fileData.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    if (buffer.length > 100 * 1024 * 1024) {
+      return res.status(400).json({ ok: false, error: 'Uploaded file exceeds 100MB maximum limit.' });
+    }
+
+    const media = await saveUploadedMedia({ filename: fileName, buffer });
+    return res.json({ ok: true, message: 'Media uploaded and processed successfully.', media });
+  } catch (err) {
+    console.error('[API Stream Upload Error]', err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+apiRouter.post('/stream/start', requireAuth, async (req, res) => {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ ok: false, error: 'Administrator privileges required.' });
+  }
+
+  try {
+    const { streamKey, title, category } = req.body || {};
+    if (streamKey) {
+      updateStreamSettings({ streamKey });
+    }
+
+    const currentSettings = getStreamSettings();
+    const effectiveTitle = title !== undefined ? title : currentSettings.title;
+    const effectiveCategory = category !== undefined ? category : currentSettings.category;
+
+    if (effectiveTitle || effectiveCategory) {
+      updateStreamSettings({ title: effectiveTitle, category: effectiveCategory });
+      try {
+        const syncResult = await updateChannelBroadcast({ title: effectiveTitle, category: effectiveCategory });
+        if (syncResult && syncResult.category) {
+          updateStreamSettings({ category: syncResult.category });
+        }
+      } catch (e) {
+        console.warn('[API Stream] Twitch broadcast update notice:', e.message);
+      }
+    }
+
+    const result = await startStream({ streamKey });
+    return res.json(result);
+  } catch (err) {
+    console.error('[API Stream Start Error]', err);
+    return res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+apiRouter.post('/stream/stop', requireAuth, (req, res) => {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ ok: false, error: 'Administrator privileges required.' });
+  }
+
+  try {
+    const result = stopStream();
+    return res.json(result);
+  } catch (err) {
+    console.error('[API Stream Stop Error]', err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+apiRouter.post('/stream/settings', requireAuth, async (req, res) => {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ ok: false, error: 'Administrator privileges required.' });
+  }
+
+  try {
+    const { streamKey, title, category, ingestServer, bitrate, recompileVideo } = req.body || {};
+    const updates = {};
+    if (streamKey !== undefined) updates.streamKey = streamKey;
+    if (title !== undefined) updates.title = title;
+    if (category !== undefined) updates.category = category;
+    if (ingestServer !== undefined) updates.ingestServer = ingestServer;
+    if (bitrate !== undefined) {
+      const br = parseInt(bitrate, 10);
+      if (!isNaN(br) && br >= 500 && br <= 10000) {
+        updates.bitrate = br;
+      }
+    }
+
+    updateStreamSettings(updates);
+
+    // Only recompile video loop if explicitly requested (e.g. bitrate change or upload)
+    if (recompileVideo === true && updates.bitrate !== undefined) {
+      try {
+        await recompileVideoLoop({ bitrate: updates.bitrate });
+      } catch (e) {
+        console.warn('[API Stream] Loop recompile notice:', e.message);
+      }
+    }
+
+    let broadcastSync = null;
+    if (title !== undefined || category !== undefined) {
+      try {
+        broadcastSync = await updateChannelBroadcast({ title, category });
+        if (broadcastSync && broadcastSync.category) {
+          updates.category = broadcastSync.category;
+          updateStreamSettings({ category: broadcastSync.category });
+        }
+      } catch (e) {
+        console.warn('[API Stream] Broadcast metadata update notice:', e.message);
+        broadcastSync = { ok: false, error: e.message };
+      }
+    }
+
+    const current = getStreamStatus();
+    let message = 'Broadcast settings saved.';
+    if (broadcastSync) {
+      if (broadcastSync.ok) {
+        message = 'Broadcast settings saved and updated on Twitch channel.';
+      } else {
+        message = `Settings saved locally, but Twitch update notice: ${broadcastSync.error}`;
+      }
+    }
+
+    return res.json({ ok: true, message, broadcastSync, ...current });
+  } catch (err) {
+    console.error('[API Stream Settings Error]', err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+apiRouter.post('/stream/sync-broadcast', requireAuth, async (req, res) => {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ ok: false, error: 'Administrator privileges required.' });
+  }
+
+  try {
+    const info = await getChannelBroadcastInfo();
+    if (!info) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Could not fetch channel broadcast info from Twitch. Ensure central bot account is authorized.',
+      });
+    }
+
+    const updates = {};
+    if (info.title) updates.title = info.title;
+    if (info.category) updates.category = info.category;
+    updateStreamSettings(updates);
+
+    const current = getStreamStatus();
+    return res.json({
+      ok: true,
+      message: 'Twitch broadcast title and category pulled from channel.',
+      info,
+      ...current,
+    });
+  } catch (err) {
+    console.error('[API Stream Sync Error]', err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+apiRouter.post('/stream/auto-key', requireAuth, async (req, res) => {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ ok: false, error: 'Administrator privileges required.' });
+  }
+
+  try {
+    const key = await getBotStreamKey();
+    if (!key) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Could not fetch stream key from Twitch. Ensure central bot account has the channel:read:stream_key scope.',
+      });
+    }
+
+    updateStreamSettings({ streamKey: key });
+    const masked = `${key.slice(0, 4)}••••••••${key.slice(-4)}`;
+    return res.json({ ok: true, message: 'Stream key automatically retrieved and saved!', streamKeyMasked: masked });
+  } catch (err) {
+    console.error('[API Stream Auto-Key Error]', err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 

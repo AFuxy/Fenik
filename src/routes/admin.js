@@ -1,11 +1,14 @@
 import { Router } from 'express';
-import { getBotAccount, getAllChannels, getChannel, getSession } from '../db/index.js';
+import { getBotAccount, unlinkBotAccount, getAllChannels, getChannel, getSession } from '../db/index.js';
 import { renderAdminView } from '../ui/adminView.js';
 import { renderErrorView } from '../ui/errorView.js';
 import { config, isAdmin } from '../config.js';
-import { validateUserToken, checkBotModeratorStatus } from '../services/twitchApi.js';
-import { REQUIRED_STREAMER_SCOPES } from './auth.js';
+import { validateUserToken, checkBotModeratorStatus, getChannelBroadcastInfo } from '../services/twitchApi.js';
+import { REQUIRED_STREAMER_SCOPES, createAdminAuthKey } from './auth.js';
 import { deleteChannelAccount } from '../services/accountService.js';
+import { getStreamStatus } from '../services/streamService.js';
+import { updateStreamSettings } from '../db/streamRepo.js';
+import { stopEventSub } from '../services/eventSub.js';
 
 export const adminRouter = Router();
 
@@ -118,11 +121,31 @@ adminRouter.get('/', requireAdmin, async (req, res) => {
     totalTimers,
   };
 
+  if (bot && bot.userId && botTokenInfo.scopes?.includes('channel:manage:broadcast')) {
+    try {
+      const liveInfo = await getChannelBroadcastInfo(bot.userId);
+      if (liveInfo && liveInfo.title) {
+        updateStreamSettings({
+          title: liveInfo.title,
+          category: liveInfo.category || undefined,
+        });
+      }
+    } catch (_) {}
+  }
+
+  const streamStatus = getStreamStatus();
+
+  const adminAuthKey = createAdminAuthKey();
+  const botAuthUrl = `${config.baseUrl}/auth/bot?admin_key=${adminAuthKey}`;
+
   const html = renderAdminView({
     bot: bot ? { ...bot, tokenInfo: botTokenInfo } : null,
     channels: enrichedChannels,
     stats,
+    streamStatus,
     user: req.user,
+    adminAuthKey,
+    botAuthUrl,
     success,
     error,
   });
@@ -130,7 +153,20 @@ adminRouter.get('/', requireAdmin, async (req, res) => {
   res.send(html);
 });
 
-// 2. Permanently Delete Channel Account & Disconnect Bot
+// 2. Disconnect Central Bot Account
+adminRouter.post('/bot/unlink', requireAdmin, async (req, res) => {
+  try {
+    stopEventSub();
+    unlinkBotAccount();
+    res.setFlash('success', 'Central bot account disconnected. You can now link a new bot account.');
+  } catch (err) {
+    console.error('[Admin Unlink Bot Error]', err);
+    res.setFlash('error', `Failed to disconnect bot: ${err.message}`);
+  }
+  return res.redirect('/admin');
+});
+
+// 3. Permanently Delete Channel Account & Disconnect Bot
 adminRouter.post('/channels/delete', requireAdmin, async (req, res) => {
   const channelId = req.body.channelId ? String(req.body.channelId).trim() : null;
   if (!channelId) {

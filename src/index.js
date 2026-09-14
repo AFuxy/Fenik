@@ -12,7 +12,8 @@ import { getAppAccessToken } from './services/twitchApi.js';
 
 async function main() {
   console.log('====================================================');
-  console.log(`       [${config.botName}] Universal Twitch Bot Server`);
+  console.log(`     [${config.platformName || 'Fenik'}] Universal Twitch Bot Platform`);
+  console.log(`     Central Worker: @${config.botName || 'FenikBot'} • ${config.productionDomain}`);
   console.log('   Secure SQLite • Modular Architecture • EventSub');
   console.log('====================================================\n');
 
@@ -24,7 +25,7 @@ async function main() {
   app.listen(config.port, () => {
     console.log(`[Web] Server online and listening at:`);
     console.log(`  http://localhost:${config.port}`);
-    console.log(`  Interim public domain configured: https://${config.productionDomain}\n`);
+    console.log(`  Configured public domain: https://${config.productionDomain}\n`);
   });
 
   // 3. Verify Twitch Application Credentials

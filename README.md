@@ -1,6 +1,6 @@
-# Universal Twitch Bot Platform
+# Fenik — Universal Twitch Bot Platform
 
-A high-performance, multi-tenant Twitch bot platform built with Node.js, secure SQLite, and [Impeccable](https://impeccable.style/) design principles. Designed for any streamer to connect with one click and configure custom commands, auto-moderation, and granular permissions.
+A high-performance, multi-tenant Twitch bot platform built with Node.js, secure SQLite, and [Impeccable](https://impeccable.style/) design principles. Designed for any streamer to connect with one click and configure custom commands, auto-moderation, EventSub alerts, and 24/7 product livestream showcases via `@FenikBot`.
 
 ---
 
@@ -65,15 +65,16 @@ Copy `.env.example` to `.env`:
 
 ```env
 # Bot Platform Identity
-BOT_NAME=Companion
+PLATFORM_NAME=Fenik
+BOT_NAME=FenikBot
 
 # Server & Network Configuration
 PORT=3000
 BASE_URL=http://localhost:3000
 REDIRECT_URI=http://localhost:3000/auth/callback
 # For production:
-# BASE_URL=https://twitch.afuxy.com
-# REDIRECT_URI=https://twitch.afuxy.com/auth/callback
+# BASE_URL=https://fenik.live
+# REDIRECT_URI=https://fenik.live/auth/callback
 
 # Twitch Application Credentials
 TWITCH_CLIENT_ID=your_twitch_client_id_here

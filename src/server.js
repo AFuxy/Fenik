@@ -1,4 +1,6 @@
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
 import { config } from './config.js';
 import { getSession } from './db/index.js';
@@ -10,17 +12,24 @@ import { apiRouter } from './routes/api.js';
 import { renderErrorView } from './ui/errorView.js';
 import { flashMiddleware } from './middleware/flash.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, '..');
+
 /**
  * Creates and configures the Express application with modular routers and error handlers.
  */
 export function createServer() {
   const app = express();
 
-  // Core Middlewares
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  // Core Middlewares (supports high-res video/image showcase uploads up to 100mb)
+  app.use(express.json({ limit: '100mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '100mb' }));
   app.use(cookieParser(config.sessionSecret));
   app.use(flashMiddleware);
+
+  // Serve media storage for live stream preview and assets
+  app.use('/media', express.static(path.join(rootDir, 'media')));
 
   // Branded favicon handler (prevents 404s for browsers requesting /favicon.ico or /favicon.svg)
   const faviconSvg = Buffer.from(
@@ -78,6 +87,18 @@ export function createServer() {
         user,
       })
     );
+  });
+
+  // Range & Static File Range Error Handler (Handles HTTP 416 gracefully without 500 crash logs)
+  app.use((err, req, res, next) => {
+    if (err.status === 416 || err.statusCode === 416 || err.name === 'RangeNotSatisfiableError') {
+      res.status(416);
+      if (err.headers) {
+        res.set(err.headers);
+      }
+      return res.send('Range Not Satisfiable');
+    }
+    next(err);
   });
 
   // 500 Global Unhandled Error Handler

@@ -21,6 +21,7 @@ export * from './autoShoutoutRepo.js';
 export * from './alertRepo.js';
 export * from './redemptionRepo.js';
 export * from './sessionRepo.js';
+export * from './streamRepo.js';
 
 import { getBotAccount, setBotAccount } from './botRepo.js';
 import { upsertChannel } from './channelRepo.js';

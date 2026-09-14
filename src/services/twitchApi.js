@@ -831,3 +831,227 @@ export async function sendTwitchShoutout({ broadcasterId, toBroadcasterId, moder
     return false;
   }
 }
+
+/**
+ * Fetch the bot's own RTMP stream key via Helix API (requires channel:read:stream_key).
+ */
+export async function getBotStreamKey() {
+  const bot = getBotAccount();
+  if (!bot || !bot.userId) return null;
+  const token = await getValidBotToken();
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`https://api.twitch.tv/helix/streams/key?broadcaster_id=${bot.userId}`, {
+      headers: {
+        'Client-Id': config.clientId,
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.data?.[0]?.stream_key || null;
+  } catch (err) {
+    console.warn('[Twitch API] Could not fetch bot stream key:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Resolves a category name or ID into its canonical Twitch { id, name }.
+ */
+export async function resolveTwitchCategory(categoryInput) {
+  if (!categoryInput) return null;
+  const trimmed = String(categoryInput).trim();
+  if (!trimmed) return null;
+
+  let token = null;
+  try {
+    token = await getValidBotToken();
+  } catch (_) {
+    try {
+      token = await getAppAccessToken();
+    } catch (_) {}
+  }
+
+  if (!token) return null;
+
+  // 1. If numeric ID passed directly
+  if (/^\d+$/.test(trimmed)) {
+    try {
+      const res = await fetch(`https://api.twitch.tv/helix/games?id=${encodeURIComponent(trimmed)}`, {
+        headers: {
+          'Client-Id': config.clientId,
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.data && data.data.length > 0) {
+          return { id: data.data[0].id, name: data.data[0].name };
+        }
+      }
+    } catch (_) {}
+    return { id: trimmed, name: trimmed };
+  }
+
+  // 2. Exact match by name
+  try {
+    const res = await fetch(`https://api.twitch.tv/helix/games?name=${encodeURIComponent(trimmed)}`, {
+      headers: {
+        'Client-Id': config.clientId,
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.data && data.data.length > 0) {
+        return { id: data.data[0].id, name: data.data[0].name };
+      }
+    }
+  } catch (_) {}
+
+  // 3. Search categories query
+  try {
+    const res = await fetch(`https://api.twitch.tv/helix/search/categories?query=${encodeURIComponent(trimmed)}`, {
+      headers: {
+        'Client-Id': config.clientId,
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.data && data.data.length > 0) {
+        const exact = data.data.find(
+          (c) => c.name && c.name.toLowerCase() === trimmed.toLowerCase()
+        );
+        const selected = exact || data.data[0];
+        return { id: selected.id, name: selected.name };
+      }
+    }
+  } catch (_) {}
+
+  return null;
+}
+
+/**
+ * Fetch current broadcast channel title and category from Twitch Helix.
+ */
+export async function getChannelBroadcastInfo(broadcasterId = null) {
+  const bot = getBotAccount();
+  const targetId = broadcasterId || bot?.userId;
+  if (!targetId) return null;
+
+  let token = null;
+  try {
+    token = await getValidBotToken();
+  } catch (_) {
+    try {
+      token = await getAppAccessToken();
+    } catch (_) {}
+  }
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`https://api.twitch.tv/helix/channels?broadcaster_id=${targetId}`, {
+      headers: {
+        'Client-Id': config.clientId,
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const channel = data.data?.[0];
+    if (!channel) return null;
+
+    return {
+      broadcasterId: channel.broadcaster_id,
+      login: channel.broadcaster_login,
+      displayName: channel.broadcaster_name,
+      title: channel.title || '',
+      category: channel.game_name || '',
+      categoryId: channel.game_id || '',
+    };
+  } catch (err) {
+    console.warn('[Twitch API] Could not fetch channel broadcast info:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Update broadcast channel title and category on Twitch (requires channel:manage:broadcast).
+ * Automatically resolves category names (e.g. "Software and Game Development" or "Always On")
+ * to Twitch numeric game_ids and defaults to the central bot channel ID.
+ */
+export async function updateChannelBroadcast({ broadcasterId = null, title = null, category = null, categoryId = null } = {}) {
+  const bot = getBotAccount();
+  const targetBroadcasterId = broadcasterId || bot?.userId;
+  if (!targetBroadcasterId) {
+    console.warn('[Twitch API] Cannot update broadcast: No broadcasterId specified and bot account not registered.');
+    return { ok: false, error: 'Central bot account not registered.' };
+  }
+
+  let token = null;
+  try {
+    token = await getValidBotToken();
+  } catch (err) {
+    console.warn('[Twitch API] Cannot update broadcast: Valid bot token not available:', err.message);
+    return { ok: false, error: 'Central bot is not authorized with Twitch. Please authorize the bot in Host Control.' };
+  }
+
+  try {
+    const body = {};
+    if (title !== null && title !== undefined && String(title).trim().length > 0) {
+      body.title = String(title).trim().slice(0, 140);
+    }
+
+    let resolvedCategory = null;
+    const catInput = categoryId !== null && categoryId !== undefined ? categoryId : category;
+    if (catInput !== null && catInput !== undefined) {
+      const trimmedCat = String(catInput).trim();
+      if (trimmedCat === '') {
+        body.game_id = '';
+      } else {
+        resolvedCategory = await resolveTwitchCategory(trimmedCat);
+        if (resolvedCategory && resolvedCategory.id) {
+          body.game_id = String(resolvedCategory.id);
+        } else {
+          console.warn(`[Twitch API] Category "${trimmedCat}" not found on Twitch. Skipping game_id.`);
+        }
+      }
+    }
+
+    if (Object.keys(body).length === 0) {
+      return { ok: true, message: 'No broadcast changes requested.' };
+    }
+
+    const res = await fetch(`https://api.twitch.tv/helix/channels?broadcaster_id=${targetBroadcasterId}`, {
+      method: 'PATCH',
+      headers: {
+        'Client-Id': config.clientId,
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.warn(`[Twitch API] Failed to update broadcast (status ${res.status}):`, errText);
+      return { ok: false, error: `Twitch API rejected update (${res.status}): ${errText}` };
+    }
+
+    // Clear cached channel info so next read reflects updated metadata
+    clearBroadcasterCaches(targetBroadcasterId);
+
+    return {
+      ok: true,
+      title: body.title !== undefined ? body.title : undefined,
+      category: resolvedCategory ? resolvedCategory.name : undefined,
+      categoryId: body.game_id !== undefined ? body.game_id : undefined,
+    };
+  } catch (err) {
+    console.warn('[Twitch API] Error updating channel broadcast info:', err.message);
+    return { ok: false, error: err.message };
+  }
+}

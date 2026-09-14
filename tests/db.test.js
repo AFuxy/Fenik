@@ -4,6 +4,7 @@ import { clearDatabase, cleanupTestDb } from './setup.js';
 import {
   setBotAccount,
   getBotAccount,
+  unlinkBotAccount,
   upsertChannel,
   getChannel,
   getChannelByLogin,
@@ -76,6 +77,45 @@ describe('Database Repositories', () => {
       assert.equal(bot.displayName, 'CompanionBot');
       assert.equal(bot.accessToken, 'oauth_bot_access_123');
       assert.equal(bot.refreshToken, 'oauth_bot_refresh_456');
+    });
+
+    it('should clean up old bot records when switching to a new bot account', () => {
+      setBotAccount({
+        userId: '111111',
+        login: 'oldbot',
+        displayName: 'OldBot',
+        accessToken: 'token_1',
+        refreshToken: 'refresh_1',
+      });
+      assert.equal(getBotAccount()?.login, 'oldbot');
+
+      // Now switch to FenikBot
+      setBotAccount({
+        userId: '222222',
+        login: 'fenikbot',
+        displayName: 'FenikBot',
+        accessToken: 'token_2',
+        refreshToken: 'refresh_2',
+      });
+
+      const current = getBotAccount();
+      assert.equal(current?.userId, '222222');
+      assert.equal(current?.login, 'fenikbot');
+    });
+
+    it('should cleanly unlink and disconnect the central bot account', () => {
+      setBotAccount({
+        userId: '222222',
+        login: 'fenikbot',
+        displayName: 'FenikBot',
+        accessToken: 'token_2',
+        refreshToken: 'refresh_2',
+      });
+      assert.ok(getBotAccount());
+
+      const unlinked = unlinkBotAccount();
+      assert.equal(unlinked, true);
+      assert.equal(getBotAccount(), null);
     });
   });
 

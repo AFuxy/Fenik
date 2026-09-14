@@ -6,6 +6,7 @@ export function getBotAccount() {
     SELECT b.*, COALESCE(b.avatar_url, c.avatar_url) AS avatar_url 
     FROM bot_account b 
     LEFT JOIN channels c ON (c.id = b.id OR LOWER(c.login) = LOWER(b.login)) 
+    ORDER BY b.updated_at DESC
     LIMIT 1
   `).get();
   if (!row) return null;
@@ -22,11 +23,19 @@ export function getBotAccount() {
   };
 }
 
+export function unlinkBotAccount() {
+  const info = db.prepare('DELETE FROM bot_account').run();
+  return info.changes > 0;
+}
+
 export function setBotAccount(data) {
   const id = String(data.userId || data.id);
   const encAccessToken = encrypt(data.accessToken);
   const encRefreshToken = encrypt(data.refreshToken);
   const now = Date.now();
+
+  // Ensure there are no stale bot accounts lingering in the database
+  db.prepare('DELETE FROM bot_account WHERE id != ?').run(id);
 
   const stmt = db.prepare(`
     INSERT INTO bot_account (id, login, display_name, avatar_url, access_token, refresh_token, expires_at, updated_at)

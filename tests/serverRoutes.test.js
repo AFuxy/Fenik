@@ -12,12 +12,15 @@ import {
   getRaidSettings,
   getShoutoutSettings,
   setBotAccount,
+  getBotAccount,
+  unlinkBotAccount,
   getCommandsForChannel,
   getTimers,
   createTimer,
   upsertCommand,
+  getModerationSettings,
 } from '../src/db/index.js';
-import { REQUIRED_STREAMER_SCOPES } from '../src/routes/auth.js';
+import { REQUIRED_STREAMER_SCOPES, createAdminAuthKey, verifyAdminAuthKey } from '../src/routes/auth.js';
 
 describe('Server HTTP Routes & Clean URL Flow', () => {
   let server;
@@ -1496,6 +1499,99 @@ describe('Server HTTP Routes & Clean URL Flow', () => {
     assert.equal(saved.filterScamBots, true);
     assert.equal(saved.scamAction, 'ban');
     assert.equal(saved.filterGfxBots, true);
+  });
+
+  describe('Central Bot Authorization & Incognito Linking', () => {
+    it('should generate and verify cryptographically signed admin auth keys', () => {
+      const key = createAdminAuthKey();
+      assert.ok(key);
+      assert.equal(typeof key, 'string');
+      assert.ok(key.includes('.'));
+
+      assert.equal(verifyAdminAuthKey(key), true);
+      assert.equal(verifyAdminAuthKey('invalid.key'), false);
+      assert.equal(verifyAdminAuthKey(''), false);
+      assert.equal(verifyAdminAuthKey(null), false);
+
+      // Expired key should fail
+      const expiredKey = `${Date.now() - 1000}.fakeSignature`;
+      assert.equal(verifyAdminAuthKey(expiredKey), false);
+    });
+
+    it('should reject unauthenticated GET /auth/bot if a bot is already linked and no admin key is provided', async () => {
+      setBotAccount({
+        userId: '5551',
+        login: 'existingbot',
+        displayName: 'ExistingBot',
+        accessToken: 'token',
+        refreshToken: 'refresh',
+      });
+
+      const res = await fetch(`${baseUrl}/auth/bot`, {
+        redirect: 'manual',
+      });
+
+      assert.equal(res.status, 302);
+      assert.equal(res.headers.get('location'), '/admin');
+    });
+
+    it('should allow GET /auth/bot with a valid admin_key query param without requiring a session cookie', async () => {
+      setBotAccount({
+        userId: '5551',
+        login: 'existingbot',
+        displayName: 'ExistingBot',
+        accessToken: 'token',
+        refreshToken: 'refresh',
+      });
+
+      const key = createAdminAuthKey();
+      const res = await fetch(`${baseUrl}/auth/bot?admin_key=${key}`, {
+        redirect: 'manual',
+      });
+
+      assert.equal(res.status, 302);
+      const location = res.headers.get('location');
+      assert.ok(location.includes('id.twitch.tv/oauth2/authorize'));
+      assert.ok(location.includes(`state=bot%3A${encodeURIComponent(key)}`));
+    });
+
+    it('should reject unauthorized POST /admin/bot/unlink from non-admin', async () => {
+      const res = await fetch(`${baseUrl}/admin/bot/unlink`, {
+        method: 'POST',
+        redirect: 'manual',
+      });
+      assert.equal(res.status, 302);
+      assert.equal(res.headers.get('location'), '/');
+    });
+
+    it('should allow authorized admin to disconnect bot via POST /admin/bot/unlink', async () => {
+      setBotAccount({
+        userId: '5551',
+        login: 'fenikbot',
+        displayName: 'FenikBot',
+        accessToken: 'token',
+        refreshToken: 'refresh',
+      });
+      assert.ok(getBotAccount());
+
+      const adminSession = createSession({
+        userId: '1',
+        login: 'afuxy',
+        displayName: 'afuxy',
+      });
+
+      const res = await fetch(`${baseUrl}/admin/bot/unlink`, {
+        method: 'POST',
+        headers: {
+          Cookie: `session_token=${adminSession}`,
+        },
+        redirect: 'manual',
+      });
+
+      assert.equal(res.status, 302);
+      assert.equal(res.headers.get('location'), '/admin');
+      assert.equal(getBotAccount(), null);
+    });
   });
 });
 

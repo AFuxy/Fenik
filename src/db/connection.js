@@ -179,6 +179,17 @@ export function initDb() {
       created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS stream_settings (
+      id TEXT PRIMARY KEY DEFAULT 'default',
+      stream_key TEXT,
+      title TEXT NOT NULL DEFAULT '⚡ Fenik Twitch Bot • Live Demo & Showcase • Type !help in chat',
+      category TEXT NOT NULL DEFAULT 'Software and Game Development',
+      ingest_server TEXT NOT NULL DEFAULT 'rtmp://live.twitch.tv/app',
+      active_file TEXT NOT NULL DEFAULT 'showcase_loop.mp4',
+      is_live INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   // Safe migrations for channel_managers rich profile metadata
@@ -197,6 +208,9 @@ export function initDb() {
   try { db.prepare('ALTER TABLE moderation_settings ADD COLUMN filter_scam_bots INTEGER NOT NULL DEFAULT 1').run(); } catch (_) {}
   try { db.prepare("ALTER TABLE moderation_settings ADD COLUMN scam_action TEXT NOT NULL DEFAULT 'timeout'").run(); } catch (_) {}
   try { db.prepare('ALTER TABLE moderation_settings ADD COLUMN filter_gfx_bots INTEGER NOT NULL DEFAULT 1').run(); } catch (_) {}
+
+  // Safe migration for stream_settings bitrate
+  try { db.prepare('ALTER TABLE stream_settings ADD COLUMN bitrate INTEGER NOT NULL DEFAULT 5000').run(); } catch (_) {}
 }
 
 // Automatically initialize schema on module load
