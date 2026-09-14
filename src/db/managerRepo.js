@@ -98,3 +98,15 @@ export function getManagedChannelIds(username) {
 
   return rows.map((r) => r.channel_id);
 }
+
+export function removeManagerEverywhere(userId, username) {
+  const cleanUser = username ? String(username).trim().toLowerCase().replace(/^@/, '') : null;
+  const uId = userId ? String(userId) : null;
+  if (uId && cleanUser) {
+    db.prepare('DELETE FROM channel_managers WHERE user_id = ? OR LOWER(username) = ?').run(uId, cleanUser);
+  } else if (uId) {
+    db.prepare('DELETE FROM channel_managers WHERE user_id = ?').run(uId);
+  } else if (cleanUser) {
+    db.prepare('DELETE FROM channel_managers WHERE LOWER(username) = ?').run(cleanUser);
+  }
+}

@@ -1,5 +1,5 @@
 import { getBotAccount, getAllActiveTimers, updateTimerLastRun } from '../db/index.js';
-import { sendChatMessage } from './twitchApi.js';
+import { sendChatMessage, getStreamInfo, getChannelInformation } from './twitchApi.js';
 
 // Total chat lines per channel: channelId -> lineCount
 const channelLineCounters = new Map();
@@ -14,16 +14,17 @@ let tickInterval = null;
  * Called when a non-bot chatter sends a message.
  */
 export function recordChatMessage(channelId) {
-  const cid = String(channelId);
-  const current = channelLineCounters.get(cid) || 0;
-  channelLineCounters.set(cid, current + 1);
-  return current + 1;
+  if (!channelId) return;
+  const key = String(channelId);
+  const current = channelLineCounters.get(key) || 0;
+  channelLineCounters.set(key, current + 1);
 }
 
 /**
- * Get the current chat line count for a channel.
+ * Get current recorded chat lines for a channel since bot startup.
  */
 export function getChannelChatLines(channelId) {
+  if (!channelId) return 0;
   return channelLineCounters.get(String(channelId)) || 0;
 }
 
@@ -42,17 +43,37 @@ export function resetChannelChatLines(channelId) {
 /**
  * Format timer message template with channel variables and dynamic expressions.
  */
-export function formatTimerMessage(template, { channel }) {
+export function formatTimerMessage(template, { channel, streamInfo = null, channelInfo = null }) {
   if (!template) return '';
   const channelName = channel?.displayName || channel?.login || '';
 
-  return template
+  let text = template
     .replace(/{channel}/gi, channelName)
     .replace(/{random\.(\d+)-(\d+)}/gi, (_, min, max) => {
       const low = parseInt(min, 10);
       const high = parseInt(max, 10);
       return String(Math.floor(Math.random() * (high - low + 1)) + low);
     });
+
+  if (/{uptime}/i.test(text)) {
+    if (streamInfo?.isLive) {
+      text = text.replace(/{uptime}/gi, streamInfo.uptimeFormatted || 'live');
+    } else {
+      text = text.replace(/{uptime}/gi, 'offline');
+    }
+  }
+
+  if (/{game}/i.test(text)) {
+    const game = streamInfo?.gameName || channelInfo?.gameName || 'Just Chatting';
+    text = text.replace(/{game}/gi, game);
+  }
+
+  if (/{title}/i.test(text)) {
+    const title = streamInfo?.title || channelInfo?.title || 'No title set';
+    text = text.replace(/{title}/gi, title);
+  }
+
+  return text;
 }
 
 /**
@@ -102,7 +123,14 @@ export async function processTimerTick({ now = Date.now(), sendFn = sendChatMess
         prefix: timer.channelPrefix || '!',
       };
 
-      const message = formatTimerMessage(timer.message, { channel });
+      let streamInfo = null;
+      let channelInfo = null;
+      if (/{uptime}|{game}|{title}/i.test(timer.message || '')) {
+        try { streamInfo = await getStreamInfo(channelId); } catch (_) {}
+        try { channelInfo = await getChannelInformation(channelId); } catch (_) {}
+      }
+
+      const message = formatTimerMessage(timer.message, { channel, streamInfo, channelInfo });
 
       try {
         await sendFn({

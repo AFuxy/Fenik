@@ -2,7 +2,21 @@ import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { clearDatabase, cleanupTestDb } from './setup.js';
 import { createServer } from '../src/server.js';
-import { upsertChannel, createSession, addManager, getRaidSettings, getShoutoutSettings } from '../src/db/index.js';
+import {
+  upsertChannel,
+  getChannel,
+  createSession,
+  getSession,
+  addManager,
+  getRaidSettings,
+  getShoutoutSettings,
+  setBotAccount,
+  getCommandsForChannel,
+  getTimers,
+  createTimer,
+  upsertCommand,
+} from '../src/db/index.js';
+import { REQUIRED_STREAMER_SCOPES } from '../src/routes/auth.js';
 
 describe('Server HTTP Routes & Clean URL Flow', () => {
   let server;
@@ -624,6 +638,278 @@ describe('Server HTTP Routes & Clean URL Flow', () => {
       dashHtml.includes('https://cdn.example.com/helper.png') ||
       dashHtml.includes('ks-channel-avatar')
     );
+  });
+
+  it('should render interactive dynamic variable pills ({uptime}, {game}, {title}, {followage}) in dashboard', async () => {
+    const sessionToken = createSession({
+      userId: '9910',
+      login: 'broadcasterowner',
+      displayName: 'BroadcasterOwner',
+    });
+
+    const dashRes = await fetch(`${baseUrl}/dashboard`, {
+      headers: { Cookie: `session_token=${sessionToken}` },
+    });
+    assert.equal(dashRes.status, 200);
+    const html = await dashRes.text();
+
+    assert.ok(html.includes('data-insert="{uptime}"'));
+    assert.ok(html.includes('data-insert="{game}"'));
+    assert.ok(html.includes('data-insert="{title}"'));
+    assert.ok(html.includes('data-insert="{followage}"'));
+    assert.ok(html.includes('ks-var-pill'));
+  });
+
+  it('should default to overview (Getting Started) tab on /dashboard with setup checklist and scope verification', async () => {
+    upsertChannel({
+      id: '9920',
+      login: 'newstreamer',
+      displayName: 'NewStreamer',
+      accessToken: 'test_token',
+    });
+    const sessionToken = createSession({
+      userId: '9920',
+      login: 'newstreamer',
+      displayName: 'NewStreamer',
+    });
+
+    const dashRes = await fetch(`${baseUrl}/dashboard`, {
+      headers: { Cookie: `session_token=${sessionToken}` },
+    });
+    assert.equal(dashRes.status, 200);
+    const html = await dashRes.text();
+
+    // Default tab active is tab-overview
+    assert.ok(html.includes('id="tab-overview" class="ks-tab-content active"'));
+    assert.ok(html.includes('Getting Started with'));
+    assert.ok(html.includes('Platform Readiness'));
+    assert.ok(html.includes('1. Twitch Permissions'));
+    assert.ok(html.includes('2. Channel Moderator'));
+    assert.ok(html.includes('3. Chat Presence'));
+    assert.ok(html.includes('4. Send Test Message'));
+    assert.ok(html.includes('Essential Stream Commands to Try'));
+    assert.ok(html.includes('copy-mod-btn'));
+  });
+
+  it('should mod bot automatically via POST /api/setup/mod-bot and redirect to /dashboard', async () => {
+    setBotAccount({
+      userId: '8888',
+      login: 'testfuxybot',
+      displayName: 'TestFuxyBot',
+      accessToken: 'bot_access_token',
+      refreshToken: 'bot_refresh_token',
+    });
+
+    upsertChannel({
+      id: '9930',
+      login: 'modstreamer',
+      displayName: 'ModStreamer',
+      accessToken: 'streamer_access_token',
+    });
+
+    const sessionToken = createSession({
+      userId: '9930',
+      login: 'modstreamer',
+      displayName: 'ModStreamer',
+    });
+
+    const originalFetch = globalThis.fetch;
+    let helixCalled = false;
+    globalThis.fetch = async (url, opts) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr.includes('/helix/moderation/moderators')) {
+        helixCalled = true;
+        return new Response(null, { status: 204 });
+      }
+      return originalFetch(url, opts);
+    };
+
+    try {
+      const res = await fetch(`${baseUrl}/api/setup/mod-bot`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `session_token=${sessionToken}`,
+        },
+        body: new URLSearchParams({ channelId: '9930' }).toString(),
+        redirect: 'manual',
+      });
+
+      assert.equal(res.status, 302);
+      assert.equal(res.headers.get('location'), '/dashboard');
+      assert.ok(res.headers.get('set-cookie')?.includes('active_dashboard_tab=overview'));
+      assert.equal(helixCalled, true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('should reject unauthorized POST /api/setup/mod-bot from non-broadcaster', async () => {
+    upsertChannel({ id: '9940', login: 'ownerbroadcaster', displayName: 'OwnerBroadcaster' });
+    upsertChannel({ id: '9941', login: 'randomguest', displayName: 'RandomGuest' });
+
+    const sessionToken = createSession({
+      userId: '9941',
+      login: 'randomguest',
+      displayName: 'RandomGuest',
+    });
+
+    const res = await fetch(`${baseUrl}/api/setup/mod-bot`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${sessionToken}`,
+      },
+      body: new URLSearchParams({ channelId: '9940' }).toString(),
+      redirect: 'manual',
+    });
+
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get('location'), '/dashboard');
+  });
+
+  it('should verify REQUIRED_STREAMER_SCOPES contains moderator, follower, subscriber, and redemption scopes', () => {
+    const scopeIds = REQUIRED_STREAMER_SCOPES.map((s) => s.id);
+    assert.ok(scopeIds.includes('channel:manage:moderators'));
+    assert.ok(scopeIds.includes('moderator:read:followers'));
+    assert.ok(scopeIds.includes('channel:bot'));
+    assert.ok(scopeIds.includes('channel:read:subscriptions'));
+    assert.ok(scopeIds.includes('channel:read:redemptions'));
+  });
+
+  it('should render enhanced Host Control /admin page with metrics, setup checklist badges, and delete buttons', async () => {
+    upsertChannel({ id: '1001', login: 'afuxy', displayName: 'Afuxy' });
+    const adminSessionToken = createSession({
+      userId: '1001',
+      login: 'afuxy',
+      displayName: 'Afuxy',
+    });
+
+    upsertChannel({
+      id: '9950',
+      login: 'streamertarget',
+      displayName: 'StreamerTarget',
+      joined: 1,
+    });
+
+    const res = await fetch(`${baseUrl}/admin`, {
+      headers: { Cookie: `session_token=${adminSessionToken}` },
+    });
+    assert.equal(res.status, 200);
+    const html = await res.text();
+
+    assert.ok(html.includes('Host Control Center'));
+    assert.ok(html.includes('Authorized Channels'));
+    assert.ok(html.includes('Chat Presence'));
+    assert.ok(html.includes('Setups Complete'));
+    assert.ok(html.includes('Central Bot Worker Account'));
+    assert.ok(html.includes('Connected Streamers Roster'));
+    assert.ok(html.includes('StreamerTarget'));
+    assert.ok(html.includes('In Chat'));
+    assert.ok(html.includes('open-delete-modal-btn'));
+    assert.ok(html.includes('Permanently Delete Account'));
+  });
+
+  it('should delete channel account via POST /admin/channels/delete, purge database records, and destroy sessions', async () => {
+    upsertChannel({ id: '1001', login: 'afuxy', displayName: 'Afuxy' });
+    const adminSessionToken = createSession({
+      userId: '1001',
+      login: 'afuxy',
+      displayName: 'Afuxy',
+    });
+
+    upsertChannel({
+      id: '9955',
+      login: 'deleteme',
+      displayName: 'DeleteMe',
+      joined: 1,
+    });
+    const userSessionToken = createSession({
+      userId: '9955',
+      login: 'deleteme',
+      displayName: 'DeleteMe',
+    });
+
+    createTimer('9955', {
+      name: 'Custom Timer',
+      message: 'Hello chat',
+      intervalMinutes: 10,
+      minChatLines: 2,
+    });
+
+    assert.ok(getChannel('9955'));
+    assert.ok(getSession(userSessionToken));
+    assert.equal(getTimers('9955').length, 1);
+
+    const deleteRes = await fetch(`${baseUrl}/admin/channels/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${adminSessionToken}`,
+      },
+      body: new URLSearchParams({ channelId: '9955' }).toString(),
+      redirect: 'manual',
+    });
+
+    assert.equal(deleteRes.status, 302);
+    assert.equal(deleteRes.headers.get('location'), '/admin');
+
+    // Verify completely deleted from database
+    assert.equal(getChannel('9955'), null);
+    // Verify sessions destroyed
+    assert.equal(getSession(userSessionToken), null);
+    // Verify child timers and commands purged
+    assert.equal(getTimers('9955').length, 0);
+    assert.equal(getCommandsForChannel('9955').length, 0);
+  });
+
+  it('should prevent administrator from deleting their own active account via POST /admin/channels/delete', async () => {
+    upsertChannel({ id: '1001', login: 'afuxy', displayName: 'Afuxy' });
+    const adminSessionToken = createSession({
+      userId: '1001',
+      login: 'afuxy',
+      displayName: 'Afuxy',
+    });
+
+    const deleteRes = await fetch(`${baseUrl}/admin/channels/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${adminSessionToken}`,
+      },
+      body: new URLSearchParams({ channelId: '1001' }).toString(),
+      redirect: 'manual',
+    });
+
+    assert.equal(deleteRes.status, 302);
+    assert.equal(deleteRes.headers.get('location'), '/admin');
+
+    // Admin must NOT be deleted
+    assert.ok(getChannel('1001'));
+  });
+
+  it('should reject non-admin POST /admin/channels/delete with 403', async () => {
+    upsertChannel({ id: '8880', login: 'regularuser', displayName: 'RegularUser' });
+    const userSessionToken = createSession({
+      userId: '8880',
+      login: 'regularuser',
+      displayName: 'RegularUser',
+    });
+
+    upsertChannel({ id: '8881', login: 'victimchannel', displayName: 'VictimChannel' });
+
+    const deleteRes = await fetch(`${baseUrl}/admin/channels/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: `session_token=${userSessionToken}`,
+      },
+      body: new URLSearchParams({ channelId: '8881' }).toString(),
+      redirect: 'manual',
+    });
+
+    assert.equal(deleteRes.status, 403);
+    assert.ok(getChannel('8881')); // Victim must still exist!
   });
 });
 

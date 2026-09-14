@@ -52,3 +52,8 @@ export function destroySession(token) {
   if (!token) return;
   db.prepare('DELETE FROM sessions WHERE token = ?').run(String(token));
 }
+
+export function destroyUserSessions(userId) {
+  if (!userId) return;
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(String(userId));
+}

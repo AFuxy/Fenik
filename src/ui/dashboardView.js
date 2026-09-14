@@ -20,8 +20,24 @@ export function renderDashboardView({
   isOwner = true,
   success = null,
   error = null,
-  activeTab = 'commands',
+  activeTab = 'overview',
+  setupState = null,
 }) {
+  const bot = setupState?.bot || null;
+  const isBotMod = setupState?.isBotMod !== undefined ? setupState.isBotMod : null;
+  const allScopesGranted = setupState?.allScopesGranted ?? true;
+  const missingScopes = setupState?.missingScopes || [];
+  const requiredScopes = setupState?.requiredScopes || [
+    { id: 'channel:bot', name: 'Twitch Chatbot Integration', desc: 'Allows the bot to join and speak in your stream chat room.', required: true },
+    { id: 'channel:manage:moderators', name: 'Moderator Management', desc: 'Enables 1-click automatic bot modding and moderator status detection.', required: true },
+    { id: 'moderator:read:followers', name: 'Follower Verification', desc: 'Powers dynamic follow duration ({followage}) in chat commands.', required: true },
+    { id: 'channel:read:redemptions', name: 'Channel Points & Rewards', desc: 'Allows the bot to detect and interact with custom channel point redemptions.', required: false },
+  ];
+  const grantedScopesSet = new Set(setupState?.grantedScopes || ['channel:bot', 'channel:manage:moderators', 'moderator:read:followers', 'channel:read:redemptions']);
+  const completedTasks = setupState?.completedTasks ?? 3;
+  const totalTasks = setupState?.totalTasks ?? 4;
+  const percentReady = setupState?.percentReady ?? Math.round((completedTasks / totalTasks) * 100);
+
   const currentPrefix = channel.prefix || '!';
   const disabledSet = new Set(channel.disabledBuiltins || []);
   const activeBuiltinCount = BUILTIN_COMMANDS.filter((b) => !disabledSet.has(b.id)).length;
@@ -64,6 +80,7 @@ export function renderDashboardView({
   }
 
   const tabTitleMap = {
+    overview: 'Getting Started & Setup',
     commands: 'Custom Commands',
     builtins: 'Built-in Commands',
     timers: 'Chat Timers',
@@ -74,7 +91,7 @@ export function renderDashboardView({
     managers: 'Managers & Access',
     test: 'Live Test Message',
   };
-  const currentTabTitle = tabTitleMap[activeTab] || 'Menu';
+  const currentTabTitle = tabTitleMap[activeTab] || 'Getting Started & Setup';
 
   // Keep groups expanded by default so dropdowns never retract unexpectedly on refresh
   const isChatOpen = true;
@@ -183,6 +200,22 @@ export function renderDashboardView({
           </div>
 
           <div class="ks-sidebar-inner">
+
+            <!-- 0. Getting Started & Setup Item -->
+            <div style="margin-bottom: 10px;">
+              <button type="button" data-tab="overview" class="ks-sidebar-item ${activeTab === 'overview' ? 'active' : ''}" style="border-radius: var(--ks-radius-sm); padding: 8px 12px; font-weight: 600;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ks-kinpaku);">
+                  <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path>
+                  <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"></path>
+                  <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"></path>
+                  <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"></path>
+                </svg>
+                <span class="ks-sidebar-item-label">Getting Started</span>
+                <span class="ks-tag ${percentReady === 100 ? 'ks-tag-gold' : ''}" style="font-size: 0.68rem; padding: 1px 6px; margin-left: auto;">
+                  ${percentReady === 100 ? 'Ready' : `${completedTasks}/${totalTasks}`}
+                </span>
+              </button>
+            </div>
 
             <!-- 1. Chat & Commands Group (Collapsible Dropdown) -->
             <div class="ks-sidebar-group ${isChatOpen ? '' : 'is-collapsed'}" data-group="chat">
@@ -331,6 +364,301 @@ export function renderDashboardView({
         <!-- Main Content Area -->
         <main class="ks-dashboard-main">
 
+      <!-- 0. GETTING STARTED & SETUP OVERVIEW TAB -->
+      <div id="tab-overview" class="ks-tab-content ${activeTab === 'overview' ? 'active' : ''}">
+        
+        <!-- Welcome Hero & Readiness Bar -->
+        <section class="ks-card" style="border-color: ${percentReady === 100 ? 'var(--ks-gold-hairline)' : 'var(--ks-rule)'}; margin-bottom: 24px;">
+          <div style="display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 18px;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
+                <h2 class="ks-card-title" style="font-size: 1.35rem; margin: 0;">Getting Started with ${escapeAttr(config.botName)}</h2>
+                <span class="ks-tag ${percentReady === 100 ? 'ks-tag-gold' : ''}" style="font-size: 0.76rem;">
+                  ${percentReady === 100 ? '✓ Setup Complete' : `${completedTasks} of ${totalTasks} Steps Done`}
+                </span>
+              </div>
+              <p class="ks-card-desc" style="font-size: 0.88rem; max-width: 650px;">
+                Welcome to your channel dashboard! Follow this checklist to verify your permissions, moderator status, and bot connectivity so your chat commands and features run flawlessly.
+              </p>
+            </div>
+
+            <div style="text-align: right; min-width: 140px;">
+              <div style="font-size: 1.8rem; font-weight: 700; font-family: var(--ks-mono); color: ${percentReady === 100 ? 'var(--ks-kinpaku)' : 'var(--ks-champagne)'};">
+                ${percentReady}%
+              </div>
+              <div style="font-size: 0.76rem; color: var(--ks-text-muted);">Platform Readiness</div>
+            </div>
+          </div>
+
+          <!-- Progress Bar Track -->
+          <div style="width: 100%; height: 8px; background: var(--ks-lacquer-deep); border-radius: 99px; overflow: hidden; border: 1px solid var(--ks-rule);">
+            <div style="width: ${percentReady}%; height: 100%; background: ${percentReady === 100 ? 'linear-gradient(90deg, var(--ks-kinpaku-rich), var(--ks-kinpaku))' : 'linear-gradient(90deg, var(--ks-patina-deep), var(--ks-patina))'}; transition: width 0.4s ease;"></div>
+          </div>
+        </section>
+
+        <!-- 4 Essential Setup Cards Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; margin-bottom: 24px;">
+
+          <!-- 1. Twitch Scopes & Permissions Card -->
+          <div class="ks-card" style="display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <div style="width: 32px; height: 32px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); display: flex; align-items: center; justify-content: center; border: 1px solid var(--ks-rule);">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ks-kinpaku);">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                    </svg>
+                  </div>
+                  <h3 style="font-size: 1.02rem; font-weight: 600; color: var(--ks-champagne); margin: 0;">1. Twitch Permissions</h3>
+                </div>
+                ${allScopesGranted ? `
+                  <span class="ks-tag ks-tag-patina" style="font-size: 0.72rem;">✓ Verified</span>
+                ` : `
+                  <span class="ks-tag ks-tag-vermilion" style="font-size: 0.72rem;">Action Required</span>
+                `}
+              </div>
+
+              <p style="font-size: 0.84rem; color: var(--ks-text-muted); line-height: 1.45; margin-bottom: 14px;">
+                Twitch permissions grant the bot access to join chat under official chatbot terms, verify followers for <code>{followage}</code>, and manage moderators.
+              </p>
+
+              <!-- Scopes List -->
+              <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;">
+                ${requiredScopes.map((scope) => {
+                  const isGranted = grantedScopesSet.has(scope.id);
+                  return `
+                    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 6px 10px; background: var(--ks-raised-lacquer); border: 1px solid var(--ks-rule); border-radius: var(--ks-radius-xs);">
+                      <div>
+                        <div style="font-size: 0.8rem; font-weight: 600; color: var(--ks-champagne);">${escapeAttr(scope.name)}</div>
+                        <div style="font-size: 0.72rem; color: var(--ks-text-muted);">${escapeAttr(scope.desc)}</div>
+                      </div>
+                      ${isGranted ? `
+                        <span style="color: var(--ks-patina); font-size: 0.82rem; font-weight: 700; white-space: nowrap;">✓ OK</span>
+                      ` : scope.required ? `
+                        <span style="color: var(--ks-vermilion); font-size: 0.75rem; font-weight: 600; white-space: nowrap;">Missing</span>
+                      ` : `
+                        <span style="color: var(--ks-text-muted); font-size: 0.75rem; font-weight: 500; white-space: nowrap;">Optional</span>
+                      `}
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+
+            <div>
+              ${!allScopesGranted ? `
+                <a href="/auth/login" class="ks-button ks-button-primary" style="width: 100%; justify-content: center;">
+                  <span>Update Twitch Permissions</span>
+                  <span class="ks-button-arrow"><svg viewBox="0 0 14 8" fill="none"><path d="M1 4h12m0 0L9.5 1M13 4L9.5 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                </a>
+              ` : `
+                <div style="font-size: 0.78rem; color: var(--ks-patina); display: flex; align-items: center; gap: 6px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span>All requested scopes are authorized and valid.</span>
+                </div>
+              `}
+            </div>
+          </div>
+
+          <!-- 2. Bot Moderator Status Card -->
+          <div class="ks-card" style="display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <div style="width: 32px; height: 32px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); display: flex; align-items: center; justify-content: center; border: 1px solid var(--ks-rule);">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ks-kinpaku);">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    </svg>
+                  </div>
+                  <h3 style="font-size: 1.02rem; font-weight: 600; color: var(--ks-champagne); margin: 0;">2. Channel Moderator</h3>
+                </div>
+                ${isBotMod === true ? `
+                  <span class="ks-tag ks-tag-patina" style="font-size: 0.72rem;">✓ Modded</span>
+                ` : `
+                  <span class="ks-tag ks-tag-vermilion" style="font-size: 0.72rem;">Not Modded</span>
+                `}
+              </div>
+
+              <p style="font-size: 0.84rem; color: var(--ks-text-muted); line-height: 1.45; margin-bottom: 14px;">
+                Mod status allows @<strong>${escapeAttr(bot?.displayName || bot?.login || config.botName)}</strong> to speak freely without Twitch slow-mode limits, timeout offenders in auto-mod, and deliver fast responses.
+              </p>
+
+              ${isBotMod === true ? `
+                <div style="padding: 12px 14px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); border: 1px solid var(--ks-patina-deep); margin-bottom: 16px;">
+                  <div style="font-size: 0.82rem; font-weight: 600; color: var(--ks-patina); display: flex; align-items: center; gap: 6px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    <span>Bot is a verified Moderator in ${channel.displayName}</span>
+                  </div>
+                  <div style="font-size: 0.74rem; color: var(--ks-text-muted); margin-top: 4px;">Rate-limit protection and auto-moderation permissions are active.</div>
+                </div>
+              ` : `
+                <div style="padding: 12px 14px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); border: 1px solid var(--ks-rule); margin-bottom: 16px;">
+                  <div style="font-size: 0.8rem; color: var(--ks-text-muted); margin-bottom: 8px;">
+                    Click below to automatically grant moderator status, or paste into Twitch chat:
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <code style="flex: 1; font-family: var(--ks-mono); font-size: 0.82rem; color: var(--ks-kinpaku); padding: 4px 8px; background: var(--ks-lacquer-deep); border-radius: 4px; border: 1px solid var(--ks-rule);">/mod @${escapeAttr(bot?.login || 'bot')}</code>
+                    <button type="button" class="ks-button ks-button-secondary copy-mod-btn" data-copy="/mod @${escapeAttr(bot?.login || 'bot')}" style="min-height: 28px; padding: 0 10px; font-size: 0.76rem;">Copy</button>
+                    <a href="https://twitch.tv/popout/${channel.login}/chat" target="_blank" rel="noopener noreferrer" class="ks-button ks-button-secondary" style="min-height: 28px; padding: 0 10px; font-size: 0.76rem;" title="Open Twitch Chat in Popout">Open Chat</a>
+                  </div>
+                </div>
+              `}
+            </div>
+
+            <div>
+              ${isBotMod !== true ? `
+                <form action="/api/setup/mod-bot" method="POST">
+                  <input type="hidden" name="channelId" value="${channel.id}" />
+                  <button type="submit" class="ks-button ks-button-primary" style="width: 100%; justify-content: center;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    <span>Mod Bot Automatically (1-Click)</span>
+                  </button>
+                </form>
+              ` : `
+                <div style="font-size: 0.78rem; color: var(--ks-text-muted);">
+                  Moderator status confirmed via Twitch API.
+                </div>
+              `}
+            </div>
+          </div>
+
+          <!-- 3. Bot Chat Room Connection Card -->
+          <div class="ks-card" style="display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <div style="width: 32px; height: 32px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); display: flex; align-items: center; justify-content: center; border: 1px solid var(--ks-rule);">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ks-kinpaku);">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                  </div>
+                  <h3 style="font-size: 1.02rem; font-weight: 600; color: var(--ks-champagne); margin: 0;">3. Chat Presence</h3>
+                </div>
+                ${channel.joined ? `
+                  <span class="ks-tag ks-tag-patina" style="font-size: 0.72rem;">✓ Connected</span>
+                ` : `
+                  <span class="ks-tag ks-tag-vermilion" style="font-size: 0.72rem;">Disconnected</span>
+                `}
+              </div>
+
+              <p style="font-size: 0.84rem; color: var(--ks-text-muted); line-height: 1.45; margin-bottom: 14px;">
+                Controls whether the central bot is actively listening in your stream chat room (<code>#${channel.login}</code>) and reacting to commands.
+              </p>
+
+              <div style="padding: 12px 14px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); border: 1px solid var(--ks-rule); margin-bottom: 16px;">
+                <div style="font-size: 0.8rem; color: var(--ks-text-muted);">Current Channel:</div>
+                <div style="font-weight: 600; color: var(--ks-champagne); font-size: 0.95rem; margin-top: 2px;">twitch.tv/${channel.login}</div>
+                <div style="font-size: 0.74rem; color: ${channel.joined ? 'var(--ks-patina)' : 'var(--ks-text-faint)'}; margin-top: 4px;">
+                  ${channel.joined ? '● Bot is listening to incoming chat and events' : '○ Bot is idle and not connected'}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <form action="/api/channel/join" method="POST">
+                <input type="hidden" name="channelId" value="${channel.id}" />
+                <input type="hidden" name="joined" value="${channel.joined ? 'false' : 'true'}" />
+                <button type="submit" class="ks-button ${channel.joined ? 'ks-button-secondary' : 'ks-button-primary'}" style="width: 100%; justify-content: center;">
+                  ${channel.joined ? 'Disconnect Bot from Chat' : 'Connect Bot to Chat (Join)'}
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <!-- 4. Live Test Message Card -->
+          <div class="ks-card" style="display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <div style="width: 32px; height: 32px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); display: flex; align-items: center; justify-content: center; border: 1px solid var(--ks-rule);">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ks-kinpaku);">
+                      <line x1="22" y1="2" x2="11" y2="13"></line>
+                      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                  </div>
+                  <h3 style="font-size: 1.02rem; font-weight: 600; color: var(--ks-champagne); margin: 0;">4. Send Test Message</h3>
+                </div>
+                <span class="ks-tag ks-tag-gold" style="font-size: 0.72rem;">Live Test</span>
+              </div>
+
+              <p style="font-size: 0.84rem; color: var(--ks-text-muted); line-height: 1.45; margin-bottom: 14px;">
+                Broadcast an instant test message from the bot into #${channel.login} to confirm live message delivery.
+              </p>
+
+              <form action="/api/test/message" method="POST" id="overviewTestForm">
+                <input type="hidden" name="channelId" value="${channel.id}" />
+                <div class="ks-form-group" style="margin-bottom: 12px;">
+                  <input type="text" name="message" class="ks-input-text" value="Hello chat! @${escapeAttr(bot?.displayName || bot?.login || config.botName)} is active and ready." required maxlength="200" style="font-size: 0.85rem;" />
+                </div>
+                <button type="submit" class="ks-button ks-button-primary" style="width: 100%; justify-content: center;">
+                  <span>Dispatch Message to Chat</span>
+                  <span class="ks-button-arrow"><svg viewBox="0 0 14 8" fill="none"><path d="M1 4h12m0 0L9.5 1M13 4L9.5 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                </button>
+              </form>
+            </div>
+
+            <div style="font-size: 0.75rem; color: var(--ks-text-faint); margin-top: 10px;">
+              Requires bot to be connected and registered.
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Starter Pack & Quick Features Guide -->
+        <section class="ks-card">
+          <div class="ks-card-header">
+            <div>
+              <h3 class="ks-card-title">Essential Stream Commands to Try</h3>
+              <p class="ks-card-desc">Your channel prefix is currently set to <code>${currentPrefix}</code>. Type any of these in your stream chat:</p>
+            </div>
+            <button type="button" data-tab="commands" class="ks-button ks-button-secondary">
+              Open Commands Studio (${channel.commands?.length || 0})
+            </button>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px;">
+            <div style="padding: 12px 14px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); border: 1px solid var(--ks-rule);">
+              <div style="font-family: var(--ks-mono); font-size: 0.9rem; font-weight: 600; color: var(--ks-kinpaku);">${currentPrefix}uptime</div>
+              <div style="font-size: 0.78rem; color: var(--ks-text-muted); margin-top: 4px;">Reports how long your stream has been live via Twitch Streams API.</div>
+            </div>
+            <div style="padding: 12px 14px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); border: 1px solid var(--ks-rule);">
+              <div style="font-family: var(--ks-mono); font-size: 0.9rem; font-weight: 600; color: var(--ks-kinpaku);">${currentPrefix}game</div>
+              <div style="font-size: 0.78rem; color: var(--ks-text-muted); margin-top: 4px;">Outputs the current Twitch game or category being streamed.</div>
+            </div>
+            <div style="padding: 12px 14px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); border: 1px solid var(--ks-rule);">
+              <div style="font-family: var(--ks-mono); font-size: 0.9rem; font-weight: 600; color: var(--ks-kinpaku);">${currentPrefix}title</div>
+              <div style="font-size: 0.78rem; color: var(--ks-text-muted); margin-top: 4px;">Outputs your current stream title and broadcast description.</div>
+            </div>
+            <div style="padding: 12px 14px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); border: 1px solid var(--ks-rule);">
+              <div style="font-family: var(--ks-mono); font-size: 0.9rem; font-weight: 600; color: var(--ks-kinpaku);">${currentPrefix}followage</div>
+              <div style="font-size: 0.78rem; color: var(--ks-text-muted); margin-top: 4px;">Reports how long the chatter or target has followed your channel.</div>
+            </div>
+            <div style="padding: 12px 14px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); border: 1px solid var(--ks-rule);">
+              <div style="font-family: var(--ks-mono); font-size: 0.9rem; font-weight: 600; color: var(--ks-kinpaku);">${currentPrefix}ping</div>
+              <div style="font-size: 0.78rem; color: var(--ks-text-muted); margin-top: 4px;">Responds with pong to verify bot responsiveness in chat.</div>
+            </div>
+            <div style="padding: 12px 14px; border-radius: var(--ks-radius-xs); background: var(--ks-raised-lacquer); border: 1px solid var(--ks-rule);">
+              <div style="font-family: var(--ks-mono); font-size: 0.9rem; font-weight: 600; color: var(--ks-kinpaku);">${currentPrefix}so @creator</div>
+              <div style="font-size: 0.78rem; color: var(--ks-text-muted); margin-top: 4px;">Triggers Twitch native shoutout banner and formatted chat promotion.</div>
+            </div>
+          </div>
+
+          <!-- Quick Navigation Shortcuts Bar -->
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 14px; border-top: 1px solid var(--ks-rule);">
+            <div style="font-size: 0.82rem; color: var(--ks-text-muted);">Quick Feature Setup:</div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button type="button" data-tab="timers" class="ks-button ks-button-secondary" style="min-height: 28px; padding: 0 12px; font-size: 0.8rem;">Chat Timers</button>
+              <button type="button" data-tab="shoutouts" class="ks-button ks-button-secondary" style="min-height: 28px; padding: 0 12px; font-size: 0.8rem;">Shoutout Directory</button>
+              <button type="button" data-tab="raids" class="ks-button ks-button-secondary" style="min-height: 28px; padding: 0 12px; font-size: 0.8rem;">Raid Welcomes</button>
+              <button type="button" data-tab="moderation" class="ks-button ks-button-secondary" style="min-height: 28px; padding: 0 12px; font-size: 0.8rem;">Auto-Moderation</button>
+              <button type="button" data-tab="managers" class="ks-button ks-button-secondary" style="min-height: 28px; padding: 0 12px; font-size: 0.8rem;">Add Managers</button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
       <!-- 1. CUSTOM COMMANDS TAB -->
       <div id="tab-commands" class="ks-tab-content ${activeTab === 'commands' ? 'active' : ''}">
         <section class="ks-card">
@@ -444,11 +772,20 @@ export function renderDashboardView({
             <div class="ks-form-group">
               <label class="ks-label" for="cmd-response">
                 Response Message
-                <span style="color: var(--ks-text-faint); font-weight: normal; margin-left: 8px;">
-                  Variables: <code>{user}</code>, <code>{target}</code>, <code>{count}</code>, <code>{channel}</code>
-                </span>
               </label>
               <input type="text" id="cmd-response" name="response" class="ks-input-text" placeholder="Join our Discord community at https://discord.gg/..." required maxlength="500" />
+              <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.78rem;">
+                <span style="color: var(--ks-text-muted); font-size: 0.74rem; margin-right: 2px;">Click to insert:</span>
+                <button type="button" class="ks-var-pill" data-target-input="cmd-response" data-insert="{user}" title="Chatter username (@username)">{user}</button>
+                <button type="button" class="ks-var-pill" data-target-input="cmd-response" data-insert="{target}" title="Target user from command argument (@target or chatter)">{target}</button>
+                <button type="button" class="ks-var-pill" data-target-input="cmd-response" data-insert="{channel}" title="Channel display name">{channel}</button>
+                <button type="button" class="ks-var-pill" data-target-input="cmd-response" data-insert="{uptime}" title="Stream live duration (e.g. 2h 15m) or offline">{uptime}</button>
+                <button type="button" class="ks-var-pill" data-target-input="cmd-response" data-insert="{game}" title="Current category/game being played">{game}</button>
+                <button type="button" class="ks-var-pill" data-target-input="cmd-response" data-insert="{title}" title="Current stream title">{title}</button>
+                <button type="button" class="ks-var-pill" data-target-input="cmd-response" data-insert="{followage}" title="How long chatter/target has followed channel">{followage}</button>
+                <button type="button" class="ks-var-pill" data-target-input="cmd-response" data-insert="{count}" title="Command usage counter">{count}</button>
+                <button type="button" class="ks-var-pill" data-target-input="cmd-response" data-insert="{random.1-100}" title="Random integer between 1 and 100">{random.1-100}</button>
+              </div>
             </div>
 
             <div style="display: grid; grid-template-columns: 140px 1fr; gap: 16px; align-items: flex-end;">
@@ -690,9 +1027,6 @@ export function renderDashboardView({
             <div class="ks-form-group">
               <label class="ks-label" for="timer-message">
                 Announcement Message
-                <span style="color: var(--ks-text-faint); font-weight: normal; margin-left: 8px;">
-                  Variables: <code>{channel}</code>, <code>{random.1-100}</code>
-                </span>
               </label>
               <textarea 
                 id="timer-message" 
@@ -704,6 +1038,14 @@ export function renderDashboardView({
                 required 
                 maxlength="500"
               ></textarea>
+              <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.78rem;">
+                <span style="color: var(--ks-text-muted); font-size: 0.74rem; margin-right: 2px;">Click to insert:</span>
+                <button type="button" class="ks-var-pill" data-target-input="timer-message" data-insert="{channel}" title="Channel display name">{channel}</button>
+                <button type="button" class="ks-var-pill" data-target-input="timer-message" data-insert="{uptime}" title="Stream live duration (e.g. 2h 15m) or offline">{uptime}</button>
+                <button type="button" class="ks-var-pill" data-target-input="timer-message" data-insert="{game}" title="Current category/game being played">{game}</button>
+                <button type="button" class="ks-var-pill" data-target-input="timer-message" data-insert="{title}" title="Current stream title">{title}</button>
+                <button type="button" class="ks-var-pill" data-target-input="timer-message" data-insert="{random.1-100}" title="Random integer between 1 and 100">{random.1-100}</button>
+              </div>
             </div>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; align-items: flex-end;">
@@ -1581,11 +1923,59 @@ export function renderDashboardView({
             return;
           }
 
+          var copyModBtn = e.target.closest('.copy-mod-btn');
+          if (copyModBtn) {
+            e.preventDefault();
+            var textToCopy = copyModBtn.getAttribute('data-copy');
+            if (textToCopy) {
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(textToCopy).then(function() {
+                  var origText = copyModBtn.textContent;
+                  copyModBtn.textContent = 'Copied!';
+                  copyModBtn.style.color = 'var(--ks-patina)';
+                  setTimeout(function() {
+                    copyModBtn.textContent = origText;
+                    copyModBtn.style.color = '';
+                  }, 2000);
+                }).catch(function() {
+                  window.prompt('Copy command:', textToCopy);
+                });
+              } else {
+                window.prompt('Copy command:', textToCopy);
+              }
+            }
+            return;
+          }
+
           var tabBtn = e.target.closest('[data-tab]');
           if (tabBtn) {
             e.preventDefault();
             var tab = tabBtn.getAttribute('data-tab');
             switchTab(tab);
+            return;
+          }
+
+          var varPill = e.target.closest('.ks-var-pill');
+          if (varPill) {
+            e.preventDefault();
+            var targetInputId = varPill.getAttribute('data-target-input');
+            var insertText = varPill.getAttribute('data-insert');
+            var input = targetInputId ? document.getElementById(targetInputId) : null;
+            if (input && insertText) {
+              var start = input.selectionStart !== undefined ? input.selectionStart : input.value.length;
+              var end = input.selectionEnd !== undefined ? input.selectionEnd : input.value.length;
+              var before = input.value.substring(0, start);
+              var after = input.value.substring(end);
+              var prefixSpace = (before.length > 0 && !before.endsWith(' ')) ? ' ' : '';
+              var suffixSpace = (after.length > 0 && !after.startsWith(' ')) ? ' ' : (after.length === 0 ? ' ' : '');
+              var toInsert = prefixSpace + insertText + suffixSpace;
+              input.value = before + toInsert + after;
+              var newPos = start + toInsert.length;
+              input.focus();
+              if (input.setSelectionRange) {
+                input.setSelectionRange(newPos, newPos);
+              }
+            }
             return;
           }
 

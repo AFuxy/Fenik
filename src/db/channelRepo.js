@@ -117,8 +117,19 @@ export function updateChannel(broadcasterId, updates) {
 }
 
 export function removeChannel(broadcasterId) {
+  const id = String(broadcasterId);
+  try {
+    db.prepare('DELETE FROM commands WHERE channel_id = ?').run(id);
+    db.prepare('DELETE FROM moderation_settings WHERE channel_id = ?').run(id);
+    db.prepare('DELETE FROM channel_managers WHERE channel_id = ?').run(id);
+    db.prepare('DELETE FROM channel_disabled_builtins WHERE channel_id = ?').run(id);
+    db.prepare('DELETE FROM timers WHERE channel_id = ?').run(id);
+    db.prepare('DELETE FROM raid_settings WHERE channel_id = ?').run(id);
+    db.prepare('DELETE FROM shoutout_settings WHERE channel_id = ?').run(id);
+    db.prepare('DELETE FROM auto_shoutouts WHERE channel_id = ?').run(id);
+  } catch (_) {}
   const stmt = db.prepare('DELETE FROM channels WHERE id = ?');
-  const res = stmt.run(String(broadcasterId));
+  const res = stmt.run(id);
   return res.changes > 0;
 }
 

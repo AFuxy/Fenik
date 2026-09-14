@@ -151,6 +151,30 @@ export function insertDefaultCommands(channelId) {
       userlevel: 'everyone',
       cooldown: 5,
     },
+    {
+      trigger: 'uptime',
+      response: '{channel} has been live for {uptime}',
+      userlevel: 'everyone',
+      cooldown: 5,
+    },
+    {
+      trigger: 'game',
+      response: '{channel} is currently playing {game}',
+      userlevel: 'everyone',
+      cooldown: 5,
+    },
+    {
+      trigger: 'title',
+      response: 'Current stream title: {title}',
+      userlevel: 'everyone',
+      cooldown: 5,
+    },
+    {
+      trigger: 'followage',
+      response: '{target} has been following {channel} for {followage}',
+      userlevel: 'everyone',
+      cooldown: 5,
+    },
   ];
 
   for (const def of defaults) {

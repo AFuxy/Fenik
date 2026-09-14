@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { config } from '../config.js';
+import { config, isAdmin } from '../config.js';
+import { deleteChannelAccount } from '../services/accountService.js';
 import {
   getSession,
   getChannel,
@@ -32,7 +33,7 @@ import {
   toggleAutoShoutout,
 } from '../db/index.js';
 import { subscribeChannel } from '../services/eventSub.js';
-import { sendChatMessage, getUserByLogin } from '../services/twitchApi.js';
+import { sendChatMessage, getUserByLogin, addChannelModerator } from '../services/twitchApi.js';
 import { formatRaidMessage } from '../services/raidService.js';
 import { formatShoutoutMessage } from '../services/shoutoutService.js';
 
@@ -110,18 +111,19 @@ apiRouter.get('/channel/switch/:channel', requireAuth, (req, res) => {
 });
 
 // 1. Toggle Bot Active/Paused in Channel
-apiRouter.post('/channel/toggle', requireAuth, async (req, res) => {
+apiRouter.post(['/channel/toggle', '/channel/join'], requireAuth, async (req, res) => {
   const channel = resolveTargetChannel(req, res);
   if (!channel) return;
 
-  const joined = Boolean(req.body.joined);
+  const joined = req.body.joined === 'true' || req.body.joined === true || req.body.joined === '1' || req.body.joined === 1;
   updateChannel(channel.id, { joined });
 
   if (joined) {
     await subscribeChannel(channel.id);
   }
-  res.setFlash('success', 'Bot status updated');
-  return redirectToTab(res, 'commands');
+  res.setFlash('success', joined ? 'Bot connected to chat.' : 'Bot disconnected from chat.');
+  const targetTab = req.cookies?.active_dashboard_tab === 'overview' ? 'overview' : 'commands';
+  return redirectToTab(res, targetTab);
 });
 
 // 1b. Toggle Built-in Command Active/Disabled
@@ -638,5 +640,82 @@ apiRouter.post('/channel/prefix', requireAuth, (req, res) => {
   updateChannel(channel.id, { prefix: rawPrefix });
   res.setFlash('success', `Command prefix updated to ${rawPrefix}`);
   return redirectToTab(res, 'prefix');
+});
+
+// 9. Automated Modding of Central Bot via Twitch Helix
+apiRouter.post('/setup/mod-bot', requireAuth, async (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  // Only the broadcaster can manage channel moderators
+  if (String(channel.id) !== String(req.user.userId)) {
+    res.setFlash('error', 'Only the channel broadcaster can add moderators.');
+    return redirectToTab(res, 'overview');
+  }
+
+  const bot = getBotAccount();
+  if (!bot || !bot.userId) {
+    res.setFlash('error', 'Central bot account is not registered yet.');
+    return redirectToTab(res, 'overview');
+  }
+
+  try {
+    await addChannelModerator({
+      broadcasterId: channel.id,
+      botUserId: bot.userId,
+      userToken: channel.accessToken,
+    });
+    res.setFlash('success', `Success! @${bot.displayName || bot.login} is now a moderator in #${channel.login}.`);
+    return redirectToTab(res, 'overview');
+  } catch (err) {
+    console.warn('[Setup Mod-Bot Error]', err.message);
+    res.setFlash('error', err.message);
+    return redirectToTab(res, 'overview');
+  }
+});
+
+// 10. Admin Account Deletion Endpoint
+apiRouter.post('/admin/channels/delete', requireAuth, async (req, res) => {
+  if (!isAdmin(req.user)) {
+    res.setFlash('error', 'Administrator privileges required.');
+    return res.redirect('/admin');
+  }
+
+  const channelId = req.body.channelId ? String(req.body.channelId).trim() : null;
+  if (!channelId) {
+    res.setFlash('error', 'Channel ID is required.');
+    return res.redirect('/admin');
+  }
+
+  if (String(channelId) === String(req.user.userId)) {
+    res.setFlash('error', 'You cannot delete your own active administrator account.');
+    return res.redirect('/admin');
+  }
+
+  const channel = getChannel(channelId);
+  if (!channel) {
+    res.setFlash('error', 'Channel account not found.');
+    return res.redirect('/admin');
+  }
+
+  try {
+    const result = await deleteChannelAccount(channelId);
+    if (result.success) {
+      if (req.cookies?.active_channel_id === channelId) {
+        res.clearCookie('active_channel_id', { path: '/' });
+      }
+      res.setFlash(
+        'success',
+        `Channel @${channel.displayName || channel.login} was completely deleted and disconnected from the bot.`
+      );
+    } else {
+      res.setFlash('error', result.error || 'Failed to delete channel.');
+    }
+  } catch (err) {
+    console.error('[API Admin Delete Channel Error]', err);
+    res.setFlash('error', `Error deleting channel: ${err.message}`);
+  }
+
+  return res.redirect('/admin');
 });
 

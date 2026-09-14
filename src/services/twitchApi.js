@@ -1,8 +1,39 @@
 import { config } from '../config.js';
-import { getBotAccount, setBotAccount } from '../db/index.js';
+import { getBotAccount, setBotAccount, getChannel, upsertChannel } from '../db/index.js';
 
 let cachedAppAccessToken = null;
 let appTokenExpiresAt = 0;
+
+// In-memory caches for Twitch Helix read calls to prevent rate-limiting and maximize performance
+const streamInfoCache = new Map(); // broadcasterId -> { data, expiresAt }
+const channelInfoCache = new Map(); // broadcasterId -> { data, expiresAt }
+const followAgeCache = new Map(); // `${broadcasterId}:${userId}` -> { data, expiresAt }
+const tokenValidationCache = new Map(); // token -> { data, expiresAt }
+const botModStatusCache = new Map(); // `${broadcasterId}:${botUserId}` -> { isMod, expiresAt }
+
+export function clearTwitchApiCaches() {
+  streamInfoCache.clear();
+  channelInfoCache.clear();
+  followAgeCache.clear();
+  tokenValidationCache.clear();
+  botModStatusCache.clear();
+}
+
+export function clearBroadcasterCaches(broadcasterId, token = null) {
+  if (!broadcasterId) return;
+  const bId = String(broadcasterId);
+  streamInfoCache.delete(bId);
+  channelInfoCache.delete(bId);
+  for (const key of followAgeCache.keys()) {
+    if (key.startsWith(`${bId}:`)) followAgeCache.delete(key);
+  }
+  for (const key of botModStatusCache.keys()) {
+    if (key.startsWith(`${bId}:`)) botModStatusCache.delete(key);
+  }
+  if (token) {
+    tokenValidationCache.delete(token);
+  }
+}
 
 /**
  * Obtain or return a cached Twitch App Access Token (Client Credentials).
@@ -89,6 +120,208 @@ export async function getValidBotToken() {
   }
 
   return bot.accessToken;
+}
+
+/**
+ * Refresh a channel's broadcaster access token using their refresh token.
+ */
+export async function refreshChannelToken(channelId) {
+  const channel = getChannel(channelId);
+  if (!channel || !channel.refreshToken) {
+    throw new Error(`Channel ${channelId} does not have a refresh token`);
+  }
+
+  const params = new URLSearchParams({
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    grant_type: 'refresh_token',
+    refresh_token: channel.refreshToken,
+  });
+
+  const res = await fetch('https://id.twitch.tv/oauth2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to refresh channel token: ${res.status} ${errorText}`);
+  }
+
+  const data = await res.json();
+  const updatedChannel = upsertChannel({
+    id: channel.id,
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token || channel.refreshToken,
+    expiresAt: Date.now() + (data.expires_in || 14400) * 1000,
+  });
+
+  return updatedChannel ? updatedChannel.accessToken : data.access_token;
+}
+
+/**
+ * Get a valid channel broadcaster user access token.
+ */
+export async function getValidChannelToken(channelId) {
+  const channel = getChannel(channelId);
+  if (!channel || !channel.accessToken) {
+    return null;
+  }
+
+  if (channel.expiresAt && Date.now() > channel.expiresAt - 60000) {
+    try {
+      return await refreshChannelToken(channelId);
+    } catch (err) {
+      console.warn(`[Twitch API] Could not refresh token for channel ${channelId}:`, err.message);
+      return channel.accessToken;
+    }
+  }
+
+  return channel.accessToken;
+}
+
+/**
+ * Validate an OAuth user token and return its granted scopes and metadata.
+ */
+export async function validateUserToken(token) {
+  if (!token) return { valid: false, scopes: [] };
+
+  const cached = tokenValidationCache.get(token);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
+  try {
+    const res = await fetch('https://id.twitch.tv/oauth2/validate', {
+      headers: { Authorization: `OAuth ${token}` },
+    });
+
+    if (!res.ok) {
+      const result = { valid: false, scopes: [] };
+      return result;
+    }
+
+    const data = await res.json();
+    const result = {
+      valid: true,
+      scopes: Array.isArray(data.scopes) ? data.scopes : [],
+      clientId: data.client_id,
+      login: data.login,
+      userId: data.user_id,
+      expiresIn: data.expires_in,
+    };
+
+    tokenValidationCache.set(token, {
+      data: result,
+      expiresAt: Date.now() + 60000, // 60-second cache
+    });
+
+    return result;
+  } catch (err) {
+    console.warn('[Twitch API] Token validation failed:', err.message);
+    return { valid: false, scopes: [] };
+  }
+}
+
+/**
+ * Check if the bot account is a moderator in the broadcaster's channel.
+ * Returns:
+ *   true  - Bot is confirmed moderator
+ *   false - Bot is confirmed NOT a moderator
+ *   null  - Unable to check (e.g. missing channel:manage:moderators or offline)
+ */
+export async function checkBotModeratorStatus({ broadcasterId, botUserId, userToken = null }) {
+  if (!broadcasterId || !botUserId) return null;
+
+  const cacheKey = `${broadcasterId}:${botUserId}`;
+  const cached = botModStatusCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.isMod;
+  }
+
+  let token = userToken;
+  if (!token) {
+    token = await getValidChannelToken(broadcasterId);
+  }
+
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const url = `https://api.twitch.tv/helix/moderation/moderators?broadcaster_id=${encodeURIComponent(broadcasterId)}&user_id=${encodeURIComponent(botUserId)}`;
+    const res = await fetch(url, {
+      headers: {
+        'Client-Id': config.clientId,
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      return null;
+    }
+
+    if (!res.ok) {
+      return null;
+    }
+
+    const json = await res.json();
+    const isMod = Array.isArray(json.data) && json.data.length > 0;
+
+    botModStatusCache.set(cacheKey, {
+      isMod,
+      expiresAt: Date.now() + 30000, // 30-second cache
+    });
+
+    return isMod;
+  } catch (err) {
+    console.warn('[Twitch API] Could not check bot moderator status:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Add the bot account as a moderator in the broadcaster's channel via Twitch Helix.
+ * Requires scope: channel:manage:moderators on the broadcaster's user token.
+ */
+export async function addChannelModerator({ broadcasterId, botUserId, userToken = null }) {
+  if (!broadcasterId || !botUserId) {
+    throw new Error('Broadcaster ID and Bot User ID are required');
+  }
+
+  let token = userToken;
+  if (!token) {
+    token = await getValidChannelToken(broadcasterId);
+  }
+
+  if (!token) {
+    throw new Error('Broadcaster authorization token not found. Please re-connect with Twitch.');
+  }
+
+  const url = `https://api.twitch.tv/helix/moderation/moderators?broadcaster_id=${encodeURIComponent(broadcasterId)}&user_id=${encodeURIComponent(botUserId)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Client-Id': config.clientId,
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+
+  if (res.status === 204 || res.status === 400) {
+    botModStatusCache.set(`${broadcasterId}:${botUserId}`, {
+      isMod: true,
+      expiresAt: Date.now() + 120000,
+    });
+    return true;
+  }
+
+  const errText = await res.text();
+  if (res.status === 401 || res.status === 403) {
+    throw new Error('Missing "channel:manage:moderators" permission. Please click "Update Twitch Permissions" to grant access.');
+  }
+
+  throw new Error(`Failed to mod bot (${res.status}): ${errText}`);
 }
 
 /**
@@ -285,10 +518,137 @@ export async function getUserByLogin(login) {
 }
 
 /**
+ * Format milliseconds into a stream duration string (e.g. "2h 15m", "45m").
+ */
+export function formatDuration(ms) {
+  if (!ms || ms <= 0) return '0m';
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
+
+  return parts.join(' ');
+}
+
+/**
+ * Format a followed_at timestamp into a friendly human-readable duration (e.g. "1 year, 2 months").
+ */
+export function formatFollowage(followedAt) {
+  if (!followedAt) return 'not following';
+  const diffMs = Date.now() - new Date(followedAt).getTime();
+  if (diffMs <= 0) return 'just now';
+
+  const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+  const years = Math.floor(diffDays / 365);
+  const remainingDays = diffDays % 365;
+  const months = Math.floor(remainingDays / 30);
+  const days = remainingDays % 30;
+
+  const totalHours = Math.floor(diffMs / (60 * 60 * 1000));
+  const hours = totalHours % 24;
+  const totalMinutes = Math.floor(diffMs / (60 * 1000));
+  const minutes = totalMinutes % 60;
+
+  if (years > 0) {
+    const yrStr = `${years} year${years > 1 ? 's' : ''}`;
+    return months > 0 ? `${yrStr}, ${months} month${months > 1 ? 's' : ''}` : yrStr;
+  }
+  if (months > 0) {
+    const moStr = `${months} month${months > 1 ? 's' : ''}`;
+    return days > 0 ? `${moStr}, ${days} day${days > 1 ? 's' : ''}` : moStr;
+  }
+  if (days > 0) {
+    const dStr = `${days} day${days > 1 ? 's' : ''}`;
+    return hours > 0 ? `${dStr}, ${hours} hour${hours > 1 ? 's' : ''}` : dStr;
+  }
+  if (hours > 0) {
+    const hStr = `${hours} hour${hours > 1 ? 's' : ''}`;
+    return minutes > 0 ? `${hStr}, ${minutes} minute${minutes > 1 ? 's' : ''}` : hStr;
+  }
+  if (minutes > 0) {
+    return `${minutes} minute${minutes > 1 ? 's' : ''}`;
+  }
+  return 'just now';
+}
+
+/**
+ * Fetch live stream info for a broadcaster (or offline state) via Helix.
+ */
+export async function getStreamInfo(broadcasterId) {
+  if (!broadcasterId) return null;
+  const cached = streamInfoCache.get(String(broadcasterId));
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
+  try {
+    const token = await getAppAccessToken();
+    const url = `https://api.twitch.tv/helix/streams?user_id=${encodeURIComponent(broadcasterId)}`;
+    const res = await fetch(url, {
+      headers: {
+        'Client-Id': config.clientId,
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) return null;
+    const json = await res.json();
+    const stream = json.data?.[0];
+
+    let result;
+    if (stream) {
+      const startedAt = stream.started_at;
+      const uptimeMs = Math.max(0, Date.now() - new Date(startedAt).getTime());
+      result = {
+        isLive: true,
+        startedAt,
+        uptimeMs,
+        uptimeFormatted: formatDuration(uptimeMs),
+        gameId: stream.game_id,
+        gameName: stream.game_name || 'Just Chatting',
+        title: stream.title || 'No title set',
+        viewerCount: stream.viewer_count || 0,
+      };
+    } else {
+      result = {
+        isLive: false,
+        startedAt: null,
+        uptimeMs: 0,
+        uptimeFormatted: 'offline',
+        gameId: null,
+        gameName: null,
+        title: null,
+        viewerCount: 0,
+      };
+    }
+
+    streamInfoCache.set(String(broadcasterId), {
+      data: result,
+      expiresAt: Date.now() + 20000, // 20-second cache
+    });
+
+    return result;
+  } catch (err) {
+    console.warn('[Twitch API] Could not fetch stream info for', broadcasterId, err.message);
+    return null;
+  }
+}
+
+/**
  * Fetch channel stream metadata (last game, title) via Helix.
  */
 export async function getChannelInformation(broadcasterId) {
   if (!broadcasterId) return null;
+  const cached = channelInfoCache.get(String(broadcasterId));
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
   try {
     const token = await getAppAccessToken();
     const url = `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(broadcasterId)}`;
@@ -304,17 +664,111 @@ export async function getChannelInformation(broadcasterId) {
     const data = json.data?.[0];
     if (!data) return null;
 
-    return {
+    const result = {
       broadcasterId: data.broadcaster_id,
       broadcasterLogin: data.broadcaster_login,
       broadcasterName: data.broadcaster_name,
       gameId: data.game_id,
       gameName: data.game_name || 'Just Chatting',
-      title: data.title,
+      title: data.title || 'No title set',
     };
+
+    channelInfoCache.set(String(broadcasterId), {
+      data: result,
+      expiresAt: Date.now() + 30000, // 30-second cache
+    });
+
+    return result;
   } catch (err) {
     console.warn('[Twitch API] Could not fetch channel info for', broadcasterId, err.message);
     return null;
+  }
+}
+
+/**
+ * Check how long a user has followed a channel via Helix.
+ */
+export async function getFollowAge({ broadcasterId, userId, channelToken = null, botToken = null }) {
+  if (!broadcasterId || !userId) return null;
+
+  const cacheKey = `${broadcasterId}:${userId}`;
+  const cached = followAgeCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
+  let token = channelToken;
+  if (!token) {
+    try {
+      const channel = getChannel(broadcasterId);
+      if (channel?.accessToken) {
+        token = channel.accessToken;
+      }
+    } catch (_) {}
+  }
+
+  if (!token) {
+    try {
+      token = await getValidBotToken();
+    } catch (_) {}
+  }
+
+  if (!token) {
+    try {
+      token = await getAppAccessToken();
+    } catch (_) {}
+  }
+
+  try {
+    const url = `https://api.twitch.tv/helix/channels/followers?broadcaster_id=${encodeURIComponent(broadcasterId)}&user_id=${encodeURIComponent(userId)}`;
+    const res = await fetch(url, {
+      headers: {
+        'Client-Id': config.clientId,
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.warn(`[Followage API] Query failed (${res.status}): ${errText}`);
+      return {
+        isFollowing: false,
+        followedAt: null,
+        followageFormatted: 'not following',
+      };
+    }
+
+    const json = await res.json();
+    const followData = json.data?.[0];
+
+    let result;
+    if (followData && followData.followed_at) {
+      result = {
+        isFollowing: true,
+        followedAt: followData.followed_at,
+        followageFormatted: formatFollowage(followData.followed_at),
+      };
+    } else {
+      result = {
+        isFollowing: false,
+        followedAt: null,
+        followageFormatted: 'not following',
+      };
+    }
+
+    followAgeCache.set(cacheKey, {
+      data: result,
+      expiresAt: Date.now() + 60000, // 60-second cache
+    });
+
+    return result;
+  } catch (err) {
+    console.warn('[Twitch API] Could not fetch followage for', broadcasterId, userId, err.message);
+    return {
+      isFollowing: false,
+      followedAt: null,
+      followageFormatted: 'not following',
+    };
   }
 }
 

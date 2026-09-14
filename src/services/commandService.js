@@ -1,6 +1,6 @@
 import { config } from '../config.js';
 import { getBotAccount, getChannel, incrementCommandCounter, addAutoShoutout, removeAutoShoutout, getAutoShoutouts } from '../db/index.js';
-import { sendChatMessage, getUserByLogin } from './twitchApi.js';
+import { sendChatMessage, getUserByLogin, getStreamInfo, getChannelInformation, getFollowAge } from './twitchApi.js';
 import { checkAutoModeration, grantLinkPermit } from './moderationService.js';
 import { recordChatMessage } from './timerService.js';
 import { executeShoutout, checkAutoShoutoutOnChat } from './shoutoutService.js';
@@ -35,22 +35,173 @@ export function hasPermission(event, broadcasterId, requiredLevel = 'everyone') 
 }
 
 /**
- * Interpolate dynamic variables in custom command templates.
+ * Format base dynamic variables (synchronous).
  */
-export function formatResponse(template, { event, channel, args, command }) {
-  const chatter = `@${event.chatter_user_name}`;
-  const target = args[0] ? args[0].replace(/^@/, '') : event.chatter_user_name;
+export function formatBaseVariables(template, { event, channel, args, command }) {
+  const chatter = event?.chatter_user_name ? `@${event.chatter_user_name}` : '';
+  const target = (args && args[0]) ? args[0].replace(/^@/, '') : (event?.chatter_user_name || '');
+  const channelName = channel?.displayName || channel?.login || '';
+  const counterVal = command?.counter !== undefined ? String((command.counter || 0) + 1) : '1';
 
-  return template
+  return String(template || '')
     .replace(/{user}/gi, chatter)
-    .replace(/{target}/gi, `@${target}`)
-    .replace(/{channel}/gi, channel.displayName || channel.login)
-    .replace(/{count}/gi, String((command.counter || 0) + 1))
+    .replace(/{target}/gi, target ? `@${target}` : '')
+    .replace(/{channel}/gi, channelName)
+    .replace(/{count}/gi, counterVal)
     .replace(/{random\.(\d+)-(\d+)}/gi, (_, min, max) => {
       const low = parseInt(min, 10);
       const high = parseInt(max, 10);
       return String(Math.floor(Math.random() * (high - low + 1)) + low);
     });
+}
+
+/**
+ * Resolve async Twitch variables ({uptime}, {game}, {title}, {followage}) in template.
+ */
+export async function formatTwitchVariables(
+  template,
+  {
+    event,
+    channel,
+    args = [],
+    command = {},
+    getStreamInfoFn = getStreamInfo,
+    getChannelInfoFn = getChannelInformation,
+    getFollowAgeFn = getFollowAge,
+    getUserByLoginFn = getUserByLogin,
+  } = {}
+) {
+  let text = formatBaseVariables(template, { event, channel, args, command });
+
+  const needsUptime = /{uptime}/i.test(text);
+  const needsGame = /{game}/i.test(text);
+  const needsTitle = /{title}/i.test(text);
+  const needsFollowage = /{followage}/i.test(text);
+
+  if (!needsUptime && !needsGame && !needsTitle && !needsFollowage) {
+    return text;
+  }
+
+  // 1. Fetch stream info if uptime, game, or title is needed
+  let streamInfo = null;
+  if (needsUptime || needsGame || needsTitle) {
+    try {
+      streamInfo = await getStreamInfoFn(channel?.id);
+    } catch (err) {
+      console.warn('[CommandService] getStreamInfo error:', err.message);
+    }
+  }
+
+  // 2. Fetch channel info if game or title is needed and stream is offline or missing
+  let channelInfo = null;
+  if ((needsGame && (!streamInfo?.isLive || !streamInfo?.gameName)) || 
+      (needsTitle && (!streamInfo?.isLive || !streamInfo?.title))) {
+    try {
+      channelInfo = await getChannelInfoFn(channel?.id);
+    } catch (err) {
+      console.warn('[CommandService] getChannelInfo error:', err.message);
+    }
+  }
+
+  // 3. Resolve {uptime}
+  if (needsUptime) {
+    if (streamInfo?.isLive) {
+      const uptimeStr = streamInfo.uptimeFormatted || 'live';
+      text = text.replace(/{uptime}/gi, uptimeStr);
+    } else {
+      // Offline stream handling
+      if (text.trim().toLowerCase() === '{uptime}') {
+        text = 'Stream is currently offline';
+      } else if (/\b(?:has been live for|been live for)\s*\{uptime\}/i.test(text)) {
+        text = text.replace(/\b(?:has been live for|been live for)\s*\{uptime\}/gi, 'is currently offline');
+      } else {
+        text = text.replace(/{uptime}/gi, 'offline');
+      }
+    }
+  }
+
+  // 4. Resolve {game}
+  if (needsGame) {
+    const game = streamInfo?.gameName || channelInfo?.gameName || 'Just Chatting';
+    text = text.replace(/{game}/gi, game);
+  }
+
+  // 5. Resolve {title}
+  if (needsTitle) {
+    const title = streamInfo?.title || channelInfo?.title || 'No title set';
+    text = text.replace(/{title}/gi, title);
+  }
+
+  // 6. Resolve {followage}
+  if (needsFollowage) {
+    const rawTarget = args[0] ? args[0].replace(/^@/, '').trim() : (event?.chatter_user_name || '');
+    const cleanTarget = rawTarget.toLowerCase();
+    const broadcasterLogin = String(channel?.login || '').toLowerCase();
+
+    if (cleanTarget && cleanTarget === broadcasterLogin) {
+      if (/\b(?:has been following|been following)\s*(?:@?[a-zA-Z0-9_]+\s*)?for\s*\{followage\}/i.test(text)) {
+        text = text.replace(/\b(?:has been following|been following)\s*(?:@?[a-zA-Z0-9_]+\s*)?for\s*\{followage\}/gi, 'is the channel broadcaster');
+      } else {
+        text = text.replace(/{followage}/gi, 'Broadcaster');
+      }
+    } else {
+      let targetUserId = null;
+      if (cleanTarget === String(event?.chatter_user_name || '').toLowerCase()) {
+        targetUserId = event?.chatter_user_id || null;
+      }
+
+      if (!targetUserId && cleanTarget) {
+        try {
+          const userObj = await getUserByLoginFn(cleanTarget);
+          targetUserId = userObj?.id || null;
+        } catch (_) {}
+      }
+
+      let followInfo = null;
+      if (targetUserId) {
+        try {
+          followInfo = await getFollowAgeFn({
+            broadcasterId: channel?.id,
+            userId: targetUserId,
+            channelToken: channel?.accessToken,
+          });
+        } catch (err) {
+          console.warn('[CommandService] getFollowAge error:', err.message);
+        }
+      }
+
+      if (followInfo?.isFollowing) {
+        text = text.replace(/{followage}/gi, followInfo.followageFormatted || 'following');
+      } else {
+        // Not following
+        const channelName = channel?.displayName || channel?.login || 'this channel';
+        if (text.trim().toLowerCase() === '{followage}') {
+          text = 'Not following this channel';
+        } else if (/\b(?:has been following|been following)\s*(?:@?[a-zA-Z0-9_]+\s*)?for\s*\{followage\}/i.test(text)) {
+          text = text.replace(
+            /\b(?:has been following|been following)\s*(?:@?[a-zA-Z0-9_]+\s*)?for\s*\{followage\}/gi,
+            `is not following ${channelName}`
+          );
+        } else {
+          text = text.replace(/{followage}/gi, 'not following');
+        }
+      }
+    }
+  }
+
+  return text;
+}
+
+/**
+ * Universal interpolator: returns string synchronously if no async tags present,
+ * or Promise<string> if async Twitch variables ({uptime}, {game}, {title}, {followage}) are present.
+ */
+export function formatResponse(template, context = {}) {
+  const needsAsync = /{uptime}|{game}|{title}|{followage}/i.test(template || '');
+  if (!needsAsync) {
+    return formatBaseVariables(template, context);
+  }
+  return formatTwitchVariables(template, context);
 }
 
 /**
@@ -62,7 +213,9 @@ export async function dispatchChatMessage(
     sendChatFn = sendChatMessage,
     getUserByLoginFn = getUserByLogin,
     sendShoutoutFn,
-    getChannelInfoFn,
+    getChannelInfoFn = getChannelInformation,
+    getStreamInfoFn = getStreamInfo,
+    getFollowAgeFn = getFollowAge,
   } = {}
 ) {
   const bot = getBotAccount();
@@ -273,11 +426,15 @@ export async function dispatchChatMessage(
   incrementCommandCounter(channel.id, customCmd.id);
 
   // Format response and send
-  const response = formatResponse(customCmd.response, {
+  const response = await formatResponse(customCmd.response, {
     event,
     channel,
     args,
     command: customCmd,
+    getStreamInfoFn,
+    getChannelInfoFn,
+    getFollowAgeFn,
+    getUserByLoginFn,
   });
 
   await reply(response);

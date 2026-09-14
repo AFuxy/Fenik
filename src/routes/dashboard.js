@@ -6,8 +6,11 @@ import {
   upsertChannel,
   getAccessibleChannels,
   canManageChannel,
+  getBotAccount,
 } from '../db/index.js';
 import { renderDashboardView } from '../ui/dashboardView.js';
+import { validateUserToken, checkBotModeratorStatus } from '../services/twitchApi.js';
+import { REQUIRED_STREAMER_SCOPES } from './auth.js';
 
 export const dashboardRouter = Router();
 
@@ -23,7 +26,7 @@ function requireAuth(req, res, next) {
   next();
 }
 
-dashboardRouter.get('/', requireAuth, (req, res) => {
+dashboardRouter.get('/', requireAuth, async (req, res) => {
   const user = req.user;
 
   // 1. Ensure user's own channel record exists
@@ -91,7 +94,50 @@ dashboardRouter.get('/', requireAuth, (req, res) => {
 
   const success = req.flash?.success;
   const error = req.flash?.error;
-  const activeTab = req.cookies?.active_dashboard_tab || 'commands';
+  const activeTab = req.cookies?.active_dashboard_tab || 'overview';
+
+  // 4. Calculate Setup & Onboarding State
+  const bot = getBotAccount();
+  let tokenInfo = { valid: false, scopes: [] };
+  if (activeChannel.accessToken) {
+    try {
+      tokenInfo = await validateUserToken(activeChannel.accessToken);
+    } catch (_) {}
+  }
+
+  const grantedScopes = new Set(tokenInfo.scopes || []);
+  const missingScopes = REQUIRED_STREAMER_SCOPES.filter((s) => s.required && !grantedScopes.has(s.id));
+  const allScopesGranted = missingScopes.length === 0;
+
+  let isBotMod = null;
+  if (bot && bot.userId && activeChannel.accessToken) {
+    try {
+      isBotMod = await checkBotModeratorStatus({
+        broadcasterId: activeChannel.id,
+        botUserId: bot.userId,
+        userToken: activeChannel.accessToken,
+      });
+    } catch (_) {}
+  }
+
+  let completedTasks = 0;
+  if (bot && bot.userId) completedTasks++;
+  if (allScopesGranted) completedTasks++;
+  if (isBotMod === true) completedTasks++;
+  if (activeChannel.joined) completedTasks++;
+
+  const setupState = {
+    bot,
+    tokenInfo,
+    grantedScopes: tokenInfo.scopes || [],
+    requiredScopes: REQUIRED_STREAMER_SCOPES,
+    missingScopes,
+    allScopesGranted,
+    isBotMod,
+    completedTasks,
+    totalTasks: 4,
+    percentReady: Math.round((completedTasks / 4) * 100),
+  };
 
   const html = renderDashboardView({
     channel: activeChannel,
@@ -102,6 +148,7 @@ dashboardRouter.get('/', requireAuth, (req, res) => {
     success,
     error,
     activeTab,
+    setupState,
   });
 
   res.send(html);

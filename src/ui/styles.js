@@ -613,6 +613,7 @@ export const impeccableCss = `
     border: 1px solid var(--ks-rule);
     color: var(--ks-text-warm);
     letter-spacing: 0.02em;
+    white-space: nowrap;
   }
   .ks-tag-gold {
     background: oklch(84% 0.19 80.46 / 0.12);
@@ -1166,5 +1167,29 @@ export const impeccableCss = `
     .ks-hero-title {
       font-size: 2.2rem !important;
     }
+  }
+
+  .ks-var-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    background: var(--ks-raised-lacquer);
+    border: 1px solid var(--ks-rule);
+    border-radius: var(--ks-radius-xs);
+    color: var(--ks-champagne);
+    font-family: var(--ks-mono);
+    font-size: 0.74rem;
+    cursor: pointer;
+    line-height: 1.2;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+  }
+  .ks-var-pill:hover {
+    background: var(--ks-graphite);
+    border-color: var(--ks-gold-hairline);
+    color: #fff;
+    transform: translateY(-1px);
+  }
+  .ks-var-pill:active {
+    transform: translateY(0);
   }
 `;

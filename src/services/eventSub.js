@@ -206,3 +206,13 @@ export async function subscribeAllActiveChannels() {
     await subscribeChannel(channel.id);
   }
 }
+
+/**
+ * Unsubscribe a single channel from EventSub tracking.
+ */
+export function unsubscribeChannel(broadcasterId) {
+  if (!broadcasterId) return;
+  const bId = String(broadcasterId);
+  subscribedChannels.delete(bId);
+  console.log(`[EventSub] Unsubscribed channel ${bId}.`);
+}

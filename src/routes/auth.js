@@ -13,9 +13,45 @@ import { startEventSub, stopEventSub, subscribeChannel } from '../services/event
 
 export const authRouter = Router();
 
+export const REQUIRED_STREAMER_SCOPES = [
+  {
+    id: 'channel:bot',
+    name: 'Twitch Chatbot Integration',
+    desc: 'Allows the bot to join and speak in your stream chat room.',
+    required: true,
+  },
+  {
+    id: 'channel:manage:moderators',
+    name: 'Moderator Management',
+    desc: 'Enables 1-click automatic bot modding and moderator status detection.',
+    required: true,
+  },
+  {
+    id: 'moderator:read:followers',
+    name: 'Follower Alerts & Verification',
+    desc: 'Powers follower chat alerts and follow duration ({followage}) in chat commands.',
+    required: true,
+  },
+  {
+    id: 'channel:read:subscriptions',
+    name: 'Subscriber Alerts & Events',
+    desc: 'Enables real-time chat announcements for new subs, resubs, and gift subs.',
+    required: false,
+  },
+  {
+    id: 'channel:read:redemptions',
+    name: 'Channel Points & Rewards',
+    desc: 'Allows the bot to trigger chat actions and responses on custom reward redemptions.',
+    required: false,
+  },
+];
+
 // Streamer scopes
-const STREAMER_SCOPES = [
+export const STREAMER_SCOPES = [
   'channel:bot',
+  'channel:manage:moderators',
+  'moderator:read:followers',
+  'channel:read:subscriptions',
   'channel:read:redemptions',
   'user:read:email',
 ].join(' ');
@@ -25,6 +61,7 @@ const BOT_SCOPES = [
   'user:bot',
   'user:read:chat',
   'user:write:chat',
+  'moderator:read:followers',
 ].join(' ');
 
 // 1. Broadcaster OAuth initiation
