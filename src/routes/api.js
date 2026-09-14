@@ -1,0 +1,642 @@
+import { Router } from 'express';
+import { config } from '../config.js';
+import {
+  getSession,
+  getChannel,
+  getChannelByLogin,
+  updateChannel,
+  getCommandById,
+  getCommandByTrigger,
+  updateCommand,
+  upsertCommand,
+  deleteCommand,
+  updateModerationSettings,
+  addManager,
+  removeManager,
+  getBotAccount,
+  canManageChannel,
+  BUILTIN_COMMANDS,
+  setBuiltinDisabled,
+  isBuiltinDisabled,
+  getTimerById,
+  createTimer,
+  updateTimer,
+  toggleTimer,
+  deleteTimer,
+  getRaidSettings,
+  updateRaidSettings,
+  getShoutoutSettings,
+  updateShoutoutSettings,
+  addAutoShoutout,
+  removeAutoShoutout,
+  toggleAutoShoutout,
+} from '../db/index.js';
+import { subscribeChannel } from '../services/eventSub.js';
+import { sendChatMessage, getUserByLogin } from '../services/twitchApi.js';
+import { formatRaidMessage } from '../services/raidService.js';
+import { formatShoutoutMessage } from '../services/shoutoutService.js';
+
+export const apiRouter = Router();
+
+function redirectToTab(res, tabName) {
+  if (tabName) {
+    res.cookie('active_dashboard_tab', tabName, { sameSite: 'lax', path: '/' });
+  }
+  return res.redirect('/dashboard');
+}
+
+function requireAuth(req, res, next) {
+  const sessionToken = req.cookies?.session_token;
+  const session = getSession(sessionToken);
+
+  if (!session) {
+    return res.redirect('/auth/login');
+  }
+
+  req.user = session;
+  next();
+}
+
+function resolveTargetChannel(req, res) {
+  const user = req.user;
+  const targetId = req.body.channelId || req.query.channelId || req.signedCookies?.active_channel_id || req.cookies?.active_channel_id || user.userId;
+
+  if (!canManageChannel(user, targetId)) {
+    res.clearCookie('active_channel_id', { path: '/' });
+    res.setFlash('error', 'You do not have permission to manage this channel.');
+    res.redirect('/dashboard');
+    return null;
+  }
+
+  const channel = getChannel(targetId);
+  if (!channel) {
+    res.clearCookie('active_channel_id', { path: '/' });
+    res.setFlash('error', 'Target channel could not be found.');
+    res.redirect('/dashboard');
+    return null;
+  }
+
+  res.cookie('active_channel_id', channel.id, {
+    httpOnly: true,
+    signed: true,
+    sameSite: 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    path: '/',
+  });
+
+  return channel;
+}
+
+// 0. Switch Active Channel (clean URL, cookie-persisted)
+apiRouter.get('/channel/switch/:channel', requireAuth, (req, res) => {
+  const user = req.user;
+  const targetParam = String(req.params.channel || '').trim();
+  const target = getChannel(targetParam) || getChannelByLogin(targetParam);
+
+  if (target && canManageChannel(user, target.id)) {
+    res.cookie('active_channel_id', target.id, {
+      httpOnly: true,
+      signed: true,
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: '/',
+    });
+  } else {
+    res.clearCookie('active_channel_id', { path: '/' });
+    res.setFlash('error', 'You do not have permission to access that channel.');
+  }
+
+  res.redirect('/dashboard');
+});
+
+// 1. Toggle Bot Active/Paused in Channel
+apiRouter.post('/channel/toggle', requireAuth, async (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const joined = Boolean(req.body.joined);
+  updateChannel(channel.id, { joined });
+
+  if (joined) {
+    await subscribeChannel(channel.id);
+  }
+  res.setFlash('success', 'Bot status updated');
+  return redirectToTab(res, 'commands');
+});
+
+// 1b. Toggle Built-in Command Active/Disabled
+apiRouter.post('/commands/builtin/toggle', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const command = String(req.body.command || '').trim().toLowerCase();
+  const validBuiltin = BUILTIN_COMMANDS.find((b) => b.id === command);
+  if (!validBuiltin) {
+    res.setFlash('error', 'Unknown built-in command.');
+    return redirectToTab(res, 'builtins');
+  }
+
+  let enabled;
+  if (req.body.hasEnabledField) {
+    enabled = Boolean(req.body.enabled === 'true' || req.body.enabled === 'on' || req.body.enabled === '1');
+  } else {
+    enabled = isBuiltinDisabled(channel.id, command);
+  }
+
+  setBuiltinDisabled(channel.id, command, !enabled);
+
+  res.setFlash(
+    'success',
+    `Built-in command "${channel.prefix || '!'}${validBuiltin.trigger}" ${enabled ? 'enabled' : 'disabled'}.`
+  );
+  return redirectToTab(res, 'builtins');
+});
+
+// 2. Create or Update Custom Command
+apiRouter.post(['/commands/save', '/commands/create', '/commands/update'], requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const commandId = req.body.commandId ? String(req.body.commandId).trim() : null;
+  const trigger = String(req.body.trigger || '').trim().toLowerCase().replace(/^[^a-zA-Z0-9_]+/, '');
+  const response = String(req.body.response || '').trim();
+  const userlevel = req.body.userlevel || 'everyone';
+  const cooldown = Math.max(1, Math.min(300, parseInt(req.body.cooldown, 10) || 5));
+
+  if (!trigger || !response) {
+    res.setFlash('error', 'Trigger and response are required');
+    return redirectToTab(res, 'commands');
+  }
+
+  const existingWithTrigger = getCommandByTrigger(channel.id, trigger);
+
+  if (commandId) {
+    // EDIT MODE
+    const existingCmd = getCommandById(channel.id, commandId);
+    if (!existingCmd) {
+      res.setFlash('error', 'Command not found');
+      return redirectToTab(res, 'commands');
+    }
+
+    if (existingWithTrigger && existingWithTrigger.id !== commandId) {
+      res.setFlash('error', `A command with trigger "${trigger}" already exists`);
+      return redirectToTab(res, 'commands');
+    }
+
+    updateCommand(channel.id, commandId, {
+      trigger,
+      response,
+      userlevel,
+      cooldown,
+    });
+
+    res.setFlash('success', `Command "${trigger}" updated`);
+    return redirectToTab(res, 'commands');
+  }
+
+  // CREATE MODE
+  if (existingWithTrigger) {
+    res.setFlash('error', `A command with trigger "${trigger}" already exists. You can edit it from the commands list.`);
+    return redirectToTab(res, 'commands');
+  }
+
+  upsertCommand(channel.id, {
+    trigger,
+    response,
+    userlevel,
+    cooldown,
+    enabled: true,
+  });
+
+  res.setFlash('success', `Command "${trigger}" created`);
+  return redirectToTab(res, 'commands');
+});
+
+// 3. Delete Custom Command
+apiRouter.post('/commands/delete', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const commandId = req.body.commandId;
+  deleteCommand(channel.id, commandId);
+
+  res.setFlash('success', 'Command deleted');
+  return redirectToTab(res, 'commands');
+});
+
+// 3b. Create or Update Scheduled Timer
+apiRouter.post(['/timers/save', '/timers/create', '/timers/update'], requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const timerId = req.body.timerId ? String(req.body.timerId).trim() : null;
+  const name = String(req.body.name || '').trim();
+  const message = String(req.body.message || '').trim();
+  const intervalMinutes = parseInt(req.body.intervalMinutes, 10) || 15;
+  const minChatLines = parseInt(req.body.minChatLines, 10) || 0;
+
+  if (!name || !message) {
+    res.setFlash('error', 'Timer name and message are required.');
+    return redirectToTab(res, 'timers');
+  }
+
+  if (timerId) {
+    const existing = getTimerById(channel.id, timerId);
+    if (!existing) {
+      res.setFlash('error', 'Timer not found.');
+      return redirectToTab(res, 'timers');
+    }
+
+    updateTimer(channel.id, timerId, {
+      name,
+      message,
+      intervalMinutes,
+      minChatLines,
+    });
+
+    res.setFlash('success', `Timer "${name}" updated.`);
+    return redirectToTab(res, 'timers');
+  }
+
+  createTimer(channel.id, {
+    name,
+    message,
+    intervalMinutes,
+    minChatLines,
+  });
+
+  res.setFlash('success', `Timer "${name}" created.`);
+  return redirectToTab(res, 'timers');
+});
+
+// 3c. Toggle Scheduled Timer Active/Paused
+apiRouter.post('/timers/toggle', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const timerId = String(req.body.timerId || '').trim();
+  const timer = getTimerById(channel.id, timerId);
+  if (!timer) {
+    res.setFlash('error', 'Timer not found.');
+    return redirectToTab(res, 'timers');
+  }
+
+  let enabled;
+  if (req.body.hasEnabledField !== undefined) {
+    enabled = Boolean(req.body.enabled === 'true' || req.body.enabled === 'on' || req.body.enabled === '1');
+  } else {
+    enabled = !timer.enabled;
+  }
+
+  toggleTimer(channel.id, timerId, enabled);
+  res.setFlash('success', `Timer "${timer.name}" ${enabled ? 'enabled' : 'paused'}.`);
+  return redirectToTab(res, 'timers');
+});
+
+// 3d. Delete Scheduled Timer
+apiRouter.post('/timers/delete', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const timerId = String(req.body.timerId || '').trim();
+  const timer = getTimerById(channel.id, timerId);
+  if (timer) {
+    deleteTimer(channel.id, timerId);
+    res.setFlash('success', `Timer "${timer.name}" deleted.`);
+  } else {
+    res.setFlash('error', 'Timer not found.');
+  }
+  return redirectToTab(res, 'timers');
+});
+
+// 3e. Update Raid Welcome Settings
+apiRouter.post('/raid/settings', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const enabled = Boolean(req.body.enabled === 'true' || req.body.enabled === 'on' || req.body.enabled === '1');
+  const minViewers = parseInt(req.body.minViewers, 10) || 0;
+  const message = String(req.body.message || '').trim();
+  const cooldownMinutes = parseInt(req.body.cooldownMinutes, 10) || 0;
+
+  if (!message) {
+    res.setFlash('error', 'Raid welcome message cannot be empty.');
+    return redirectToTab(res, 'raids');
+  }
+
+  updateRaidSettings(channel.id, {
+    enabled,
+    minViewers,
+    message,
+    cooldownMinutes,
+  });
+
+  res.setFlash('success', 'Raid welcome settings updated.');
+  return redirectToTab(res, 'raids');
+});
+
+// 3f. Send Test Raid Message
+apiRouter.post('/raid/test', requireAuth, async (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const bot = getBotAccount();
+  if (!bot) {
+    res.setFlash('error', 'Central bot account is not linked yet.');
+    return redirectToTab(res, 'raids');
+  }
+
+  const settings = channel.raidSettings || getRaidSettings(channel.id);
+  const formatted = formatRaidMessage(settings.message, {
+    raider: 'SpeedyRaider',
+    viewers: 42,
+    game: 'Super Mario World',
+    url: 'https://twitch.tv/speedyraider',
+    channel,
+  });
+
+  try {
+    await sendChatMessage({
+      broadcasterId: channel.id,
+      senderId: bot.userId,
+      message: `[TEST RAID] ${formatted}`,
+    });
+    res.setFlash('success', 'Simulated raid welcome message dispatched to Twitch chat!');
+  } catch (err) {
+    res.setFlash('error', `Could not send test message: ${err.message}`);
+  }
+
+  return redirectToTab(res, 'raids');
+});
+
+// 3g. Update Shoutout Settings
+apiRouter.post('/shoutout/settings', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const enabled = Boolean(req.body.enabled === 'true' || req.body.enabled === 'on' || req.body.enabled === '1');
+  const message = String(req.body.message || '').trim();
+  const autoOnRaid = Boolean(req.body.autoOnRaid === 'true' || req.body.autoOnRaid === 'on' || req.body.autoOnRaid === '1');
+  const sendTwitchShoutout = Boolean(req.body.sendTwitchShoutout === 'true' || req.body.sendTwitchShoutout === 'on' || req.body.sendTwitchShoutout === '1');
+  const userlevel = req.body.userlevel || 'mod';
+  const cooldownSeconds = parseInt(req.body.cooldownSeconds, 10) || 15;
+
+  if (!message) {
+    res.setFlash('error', 'Shoutout message template cannot be empty.');
+    return redirectToTab(res, 'shoutouts');
+  }
+
+  updateShoutoutSettings(channel.id, {
+    enabled,
+    message,
+    autoOnRaid,
+    sendTwitchShoutout,
+    userlevel,
+    cooldownSeconds,
+  });
+
+  res.setFlash('success', 'Shoutout settings saved successfully.');
+  return redirectToTab(res, 'shoutouts');
+});
+
+// 3h. Send Test Shoutout Message
+apiRouter.post('/shoutout/test', requireAuth, async (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const bot = getBotAccount();
+  if (!bot) {
+    res.setFlash('error', 'Central bot account is not linked yet.');
+    return redirectToTab(res, 'shoutouts');
+  }
+
+  const settings = channel.shoutoutSettings || getShoutoutSettings(channel.id);
+  const target = String(req.body.target || 'SpeedyRaider').trim().replace(/^@/, '');
+  const formatted = formatShoutoutMessage(settings.message, {
+    target,
+    game: 'Super Mario World',
+    url: `https://twitch.tv/${target.toLowerCase()}`,
+    channel,
+    user: req.user.displayName || req.user.login,
+  });
+
+  try {
+    await sendChatMessage({
+      broadcasterId: channel.id,
+      senderId: bot.userId,
+      message: `[TEST SHOUTOUT] ${formatted}`,
+    });
+    res.setFlash('success', `Simulated shoutout for @${target} dispatched to Twitch chat!`);
+  } catch (err) {
+    res.setFlash('error', `Could not send test shoutout: ${err.message}`);
+  }
+
+  return redirectToTab(res, 'shoutouts');
+});
+
+// 3i. Add Auto-Shoutout Streamer
+apiRouter.post('/shoutout/auto/add', requireAuth, async (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const rawLogin = String(req.body.targetLogin || req.body.username || '').trim().replace(/^@+/, '');
+  if (!rawLogin) {
+    res.setFlash('error', 'Twitch username cannot be empty.');
+    return redirectToTab(res, 'shoutouts');
+  }
+
+  // Prevent adding channel owner to their own auto shoutout
+  if (rawLogin.toLowerCase() === String(channel.login || '').toLowerCase()) {
+    res.setFlash('error', 'You cannot add your own channel to auto-shoutout.');
+    return redirectToTab(res, 'shoutouts');
+  }
+
+  let targetUser = null;
+  try {
+    targetUser = await getUserByLogin(rawLogin);
+  } catch (err) {
+    console.warn('[Auto-Shoutout API] User lookup failed:', err.message);
+  }
+
+  addAutoShoutout(channel.id, {
+    targetLogin: rawLogin,
+    targetUserId: targetUser?.id || null,
+    targetDisplayName: targetUser?.displayName || rawLogin,
+    targetAvatar: targetUser?.avatar || targetUser?.avatarUrl || targetUser?.profileImageUrl || null,
+  });
+
+  res.setFlash('success', `Added @${targetUser?.displayName || rawLogin} to auto-shoutout directory.`);
+  return redirectToTab(res, 'shoutouts');
+});
+
+// 3j. Remove Auto-Shoutout Streamer
+apiRouter.post('/shoutout/auto/remove', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const rawLogin = String(req.body.targetLogin || req.body.username || '').trim().replace(/^@+/, '');
+  if (!rawLogin) {
+    res.setFlash('error', 'Username cannot be empty.');
+    return redirectToTab(res, 'shoutouts');
+  }
+
+  const removed = removeAutoShoutout(channel.id, rawLogin);
+  if (removed) {
+    res.setFlash('success', `Removed @${rawLogin} from auto-shoutout directory.`);
+  } else {
+    res.setFlash('error', `@${rawLogin} was not found in the auto-shoutout directory.`);
+  }
+
+  return redirectToTab(res, 'shoutouts');
+});
+
+// 3k. Toggle Auto-Shoutout Streamer Active State
+apiRouter.post('/shoutout/auto/toggle', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const rawLogin = String(req.body.targetLogin || req.body.username || '').trim().replace(/^@+/, '');
+  if (!rawLogin) {
+    res.setFlash('error', 'Username cannot be empty.');
+    return redirectToTab(res, 'shoutouts');
+  }
+
+  const enabled = Boolean(req.body.enabled === 'true' || req.body.enabled === '1' || req.body.enabled === 'on');
+  toggleAutoShoutout(channel.id, rawLogin, enabled);
+
+  res.setFlash('success', `Auto-shoutout for @${rawLogin} ${enabled ? 'enabled' : 'disabled'}.`);
+  return redirectToTab(res, 'shoutouts');
+});
+
+// 4. Update Auto-Moderation Settings
+apiRouter.post('/moderation', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const filterLinks = Boolean(req.body.filterLinks);
+  const filterCaps = Boolean(req.body.filterCaps);
+  const rawBanned = String(req.body.bannedWords || '');
+  const bannedWords = rawBanned
+    .split(',')
+    .map((w) => w.trim())
+    .filter(Boolean);
+
+  updateModerationSettings(channel.id, {
+    filterLinks,
+    filterCaps,
+    bannedWords,
+  });
+
+  res.setFlash('success', 'Moderation settings saved');
+  return redirectToTab(res, 'moderation');
+});
+
+// 5. Add Manager
+apiRouter.post('/managers/add', requireAuth, async (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  // Only the channel broadcaster can add managers
+  if (String(channel.id) !== String(req.user.userId)) {
+    res.setFlash('error', 'Only the channel broadcaster can add channel managers.');
+    return redirectToTab(res, 'managers');
+  }
+
+  const rawUsername = String(req.body.username || '').trim().replace(/^@+/, '');
+  if (!rawUsername) {
+    res.setFlash('error', 'Please provide a username to add as manager.');
+    return redirectToTab(res, 'managers');
+  }
+
+  if (rawUsername.toLowerCase() === String(channel.login || '').toLowerCase()) {
+    res.setFlash('error', 'You are already the channel broadcaster.');
+    return redirectToTab(res, 'managers');
+  }
+
+  let twitchUser = null;
+  try {
+    twitchUser = await getUserByLogin(rawUsername);
+  } catch (err) {
+    console.warn('[Manager Add] Twitch user lookup failed:', err.message);
+  }
+
+  addManager(channel.id, rawUsername, {
+    displayName: twitchUser?.displayName || twitchUser?.display_name || rawUsername,
+    avatarUrl: twitchUser?.avatar || twitchUser?.avatarUrl || twitchUser?.profileImageUrl || null,
+    userId: twitchUser?.id || null,
+  });
+
+  res.setFlash('success', `Manager @${twitchUser?.displayName || rawUsername} added`);
+  return redirectToTab(res, 'managers');
+});
+
+// 6. Remove Manager
+apiRouter.post('/managers/remove', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  // Only the channel broadcaster can remove managers
+  if (String(channel.id) !== String(req.user.userId)) {
+    res.setFlash('error', 'Only the channel broadcaster can remove channel managers.');
+    return redirectToTab(res, 'managers');
+  }
+
+  const username = req.body.username;
+  if (username) {
+    removeManager(channel.id, username);
+    res.setFlash('success', `Manager @${username} removed`);
+  }
+  return redirectToTab(res, 'managers');
+});
+
+// 7. Live Test Message
+apiRouter.post('/send-test', requireAuth, async (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const bot = getBotAccount();
+  if (!bot) {
+    res.setFlash('error', 'Central bot account is not linked yet. Contact the host.');
+    return redirectToTab(res, 'test');
+  }
+
+  const message = req.body.message || `Hello from ${config.botName}!`;
+
+  try {
+    await sendChatMessage({
+      broadcasterId: channel.id,
+      senderId: bot.userId,
+      message,
+    });
+    res.setFlash('success', 'Message sent to Twitch chat!');
+    return redirectToTab(res, 'test');
+  } catch (err) {
+    res.setFlash('error', err.message);
+    return redirectToTab(res, 'test');
+  }
+});
+
+// 8. Update Custom Command Prefix
+apiRouter.post('/channel/prefix', requireAuth, (req, res) => {
+  const channel = resolveTargetChannel(req, res);
+  if (!channel) return;
+
+  const rawPrefix = String(req.body.prefix || '').trim();
+  if (!rawPrefix) {
+    res.setFlash('error', 'Prefix cannot be empty');
+    return redirectToTab(res, 'prefix');
+  }
+  if (rawPrefix.length > 3) {
+    res.setFlash('error', 'Prefix must be at most 3 characters');
+    return redirectToTab(res, 'prefix');
+  }
+  if (/\s/.test(rawPrefix)) {
+    res.setFlash('error', 'Prefix cannot contain spaces');
+    return redirectToTab(res, 'prefix');
+  }
+
+  updateChannel(channel.id, { prefix: rawPrefix });
+  res.setFlash('success', `Command prefix updated to ${rawPrefix}`);
+  return redirectToTab(res, 'prefix');
+});
+
