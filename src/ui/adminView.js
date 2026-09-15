@@ -436,7 +436,7 @@ export function renderAdminView({
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
             
             <!-- Stream Key Field -->
-            <div>
+            <form onsubmit="return false;" autocomplete="off" style="margin: 0; padding: 0;">
               <label for="streamKeyInput" style="display: block; font-size: 0.78rem; font-family: var(--ks-mono); text-transform: uppercase; color: var(--ks-text-muted); margin-bottom: 6px;">
                 Bot Stream Key (Encrypted AES-256)
               </label>
@@ -459,7 +459,7 @@ export function renderAdminView({
               <div id="streamKeyCaption" style="font-size: 0.72rem; color: var(--ks-text-faint); margin-top: 4px;">
                 ${activeStream.streamSettings?.streamKeyConfigured ? `✓ Key Configured: ${activeStream.streamSettings.streamKeyMasked}` : 'No key configured. Use Auto-Detect or paste from your Twitch Creator Dashboard.'}
               </div>
-            </div>
+            </form>
 
             <!-- Stream Title Field -->
             <div>
@@ -1165,6 +1165,17 @@ export function renderAdminView({
               dismissToast(toast);
             });
           }
+        }
+
+        // Client-side HTML escape helper
+        function escapeHtml(str) {
+          if (str == null) return '';
+          return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
         }
 
         // Dynamic Toast Helper

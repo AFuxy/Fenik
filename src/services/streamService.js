@@ -46,24 +46,7 @@ export function getFfmpegInfo() {
     };
   }
 
-  // 2. npm static binary (ffmpeg-static) - Works seamlessly on Linux without root/apt
-  try {
-    const staticPath = path.join(
-      rootDir,
-      'node_modules',
-      'ffmpeg-static',
-      process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
-    );
-    if (fs.existsSync(staticPath)) {
-      return {
-        available: true,
-        path: staticPath,
-        source: 'static (ffmpeg-static)',
-      };
-    }
-  } catch (_) {}
-
-  // 3. System PATH check
+  // 2. System PATH check (Preferred: uses native OS compiled binary with system codecs)
   try {
     const cmd = process.platform === 'win32' ? 'where ffmpeg' : 'which ffmpeg';
     const out = execSync(cmd, { stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim().split('\n')[0].trim();
@@ -72,6 +55,26 @@ export function getFfmpegInfo() {
         available: true,
         path: out,
         source: 'system (PATH)',
+      };
+    }
+  } catch (_) {}
+
+  // 3. npm static binary fallback (ffmpeg-static)
+  try {
+    const staticPath = path.join(
+      rootDir,
+      'node_modules',
+      'ffmpeg-static',
+      process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
+    );
+    if (fs.existsSync(staticPath)) {
+      if (process.platform !== 'win32') {
+        try { fs.chmodSync(staticPath, 0o755); } catch (_) {}
+      }
+      return {
+        available: true,
+        path: staticPath,
+        source: 'static (ffmpeg-static)',
       };
     }
   } catch (_) {}
@@ -694,13 +697,13 @@ export async function startStream({ streamKey = null, isHotReload = false } = {}
     if (speedMatch) streamState.speed = speedMatch[1];
   });
 
-  ffmpegProcess.on('close', (code) => {
-    console.log(`[StreamService] FFmpeg exited with code ${code}`);
+  ffmpegProcess.on('close', (code, signal) => {
+    console.log(`[StreamService] FFmpeg exited with code ${code}${signal ? ` (signal: ${signal})` : ''}`);
 
-    if (code !== 0 && code !== null && recentStderrLines.length > 0) {
+    if (code !== 0 && recentStderrLines.length > 0) {
       const excerpt = recentStderrLines.slice(-8).join('\n  ');
       console.warn(`[StreamService] FFmpeg stderr excerpt:\n  ${excerpt}`);
-      streamState.lastError = `FFmpeg exit ${code}: ${recentStderrLines.slice(-2).join('; ')}`;
+      streamState.lastError = `FFmpeg exit ${code ?? signal}: ${recentStderrLines.slice(-2).join('; ')}`;
     }
 
     const wasDeliberate = isStopping || isHotReloading || !streamState.isLive;
